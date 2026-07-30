@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>School Attendance & Intervention Tracker</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --danger: #dc2626;
+            --warning: #d97706;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text: #1e293b;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            background: var(--surface);
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .upload-section {
+            background: var(--surface);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 2px dashed #cbd5e1;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--surface);
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .stat-card h3 { margin: 0 0 0.5rem 0; font-size: 0.9rem; color: #64748b; }
+        .stat-card .number { font-size: 1.8rem; font-weight: bold; }
+
+        .table-container {
+            background: var(--surface);
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        th { background-color: #f1f5f9; font-weight: 600; }
+
+        .badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .badge-danger { background-color: #fee2e2; color: var(--danger); }
+        .badge-warning { background-color: #fef3c7; color: var(--warning); }
+
+        .btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .btn:hover { opacity: 0.9; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <div>
+            <h1>Lincoln High School — Attendance Dashboard</h1>
+            <p style="margin:0; color:#64748b;">Academic Year 2026-2027</p>
+        </div>
+        <button class="btn" onclick="alert('Email notifications are scheduled daily at 7:00 AM.')">⚙️ Email Settings</button>
+    </header>
+
+    <!-- Upload Section -->
+    <section class="upload-section">
+        <h3>Upload Daily Attendance CSV Report</h3>
+        <p style="color:#64748b; font-size: 0.9rem;">Upload your district's daily export file (.csv, .xlsx) to sync student absence counts.</p>
+        <input type="file" id="fileUpload" accept=".csv" />
+    </section>
+
+    <!-- Stats Summary -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Total Enrolled</h3>
+            <div class="number">1,240</div>
+        </div>
+        <div class="stat-card">
+            <h3>Chronically Absent (&gt;10%)</h3>
+            <div class="number" style="color: var(--danger);">42</div>
+        </div>
+        <div class="stat-card">
+            <h3>Interventions Recorded</h3>
+            <div class="number">118</div>
+        </div>
+    </div>
+
+    <!-- Student Flagged List -->
+    <div class="table-container">
+        <h2>Chronically Absent Students & Interventions</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Student ID</th>
+                    <th>Name</th>
+                    <th>Grade</th>
+                    <th>Absence Rate</th>
+                    <th>Status</th>
+                    <th>Last Intervention</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>#10492</td>
+                    <td>Alex Johnson</td>
+                    <td>10th</td>
+                    <td>14.2% (12 Days)</td>
+                    <td><span class="badge badge-danger">Chronic</span></td>
+                    <td>Phone Call to Parent (Oct 12)</td>
+                    <td><button class="btn" onclick="addIntervention('Alex Johnson')">+ Log Action</button></td>
+                </tr>
+                <tr>
+                    <td>#10833</td>
+                    <td>Maria Garcia</td>
+                    <td>11th</td>
+                    <td>11.5% (9 Days)</td>
+                    <td><span class="badge badge-warning">At Risk</span></td>
+                    <td>Student Check-In (Oct 14)</td>
+                    <td><button class="btn" onclick="addIntervention('Maria Garcia')">+ Log Action</button></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    function addIntervention(studentName) {
+        const note = prompt(`Enter intervention details for ${studentName}:`);
+        if (note) {
+            alert(`Intervention saved for ${studentName}:\n"${note}"`);
+            // Here you would normally fetch() and POST this to your back-end server database
+        }
+    }
+</script>
+
+</body>
+</html>
