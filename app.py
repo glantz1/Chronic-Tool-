@@ -62,7 +62,32 @@ class Intervention(db.Model):
 
 # DB Initialization
 with app.app_context():
+   from sqlalchemy import inspect, text
+
+with app.app_context():
+    # 1. Create tables if they don't exist yet
     db.create_all()
+
+    # 2. Safely add missing columns to existing tables
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('user')]
+    
+    if 'school_id' not in columns:
+        with db.engine.connect() as conn:
+            conn.execute(text('ALTER TABLE "user" ADD COLUMN school_id INTEGER REFERENCES school(id);'))
+            conn.commit()
+
+    # 3. Seed initial admin user if none exists
+    if not User.query.filter_by(role="admin").first():
+        default_admin = User(
+            email="admin@school.edu",
+            role="admin",
+            school_id=None
+        )
+        default_admin.set_password("admin123")
+        db.session.add(default_admin)
+        db.session.commit()
+        db.create_all()
     if not User.query.filter_by(role="admin").first():
         default_school = School(name="Main High School", grade_levels="9,10,11,12")
         db.session.add(default_school)
