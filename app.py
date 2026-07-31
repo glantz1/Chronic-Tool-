@@ -1,4 +1,5 @@
 import os
+import re
 import pandas as pd
 from flask import Flask, request, jsonify, render_template, session
 from flask_sqlalchemy import SQLAlchemy
@@ -18,6 +19,25 @@ app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
+
+# -------------------------------------------------------------
+# HELPER PARSER
+# -------------------------------------------------------------
+def safe_float_convert(val, default=0.0):
+    """Safely extracts numbers from strings or returns default if string contains non-numeric data like dates."""
+    if pd.isnull(val):
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        # Extract the first float or integer found in the text string
+        match = re.search(r"[-+]?\d*\.\d+|\d+", str(val))
+        if match:
+            try:
+                return float(match.group())
+            except ValueError:
+                pass
+        return default
 
 # -------------------------------------------------------------
 # DATABASE MODELS
@@ -224,7 +244,7 @@ def add_school():
     return jsonify({"message": "School added successfully"})
 
 # -------------------------------------------------------------
-# FILE UPLOAD ROUTE (Enhanced Column Matching)
+# FILE UPLOAD ROUTE (Enhanced Column Matching & Safe Type Conversion)
 # -------------------------------------------------------------
 @app.route("/upload", methods=["POST"])
 @login_required
@@ -252,17 +272,22 @@ def upload_file():
         else:
             return jsonify({"error": "Unsupported file format. Please upload a .csv or .xlsx file."}), 400
 
-        # Clean and normalize column headers (lowercase, remove spaces/hyphens)
+        # Clean and normalize column headers
         df.columns = [str(c).strip().lower().replace(" ", "_").replace("-", "_") for c in df.columns]
 
-        # Flexible & truncated matching for required columns
-        id_col = next((c for c in df.columns if "studentnu" in c or "student_id" in c or c == "id" or "id" in c), None)
-        name_col = next((c for c in df.columns if "studentna" in c or "student_name" in c or c == "name" or "name" in c), None)
-        absent_col = next((c for c in df.columns if "totalabse" in c or "unexcuse" in c or "absent" in c or "absence" in c or "days_absent" in c), None)
+        # Explicit matching priorities to avoid picking up date ranges like "LastEnroll"
+        id_col = next((c for c in df.columns if "studentnu" in c or "student_id" in c or c == "id"), None) or \
+                 next((c for c in df.columns if "id" in c and "school" not in c), None)
 
-        # Flexible & truncated matching for optional columns
-        grade_col = next((c for c in df.columns if "grade" in c or "level" in c), None)
-        total_col = next((c for c in df.columns if "totalmem" in c or "totalminp" in c or "total" in c or "enrolled" in c or "total_days" in c), None)
+        name_col = next((c for c in df.columns if "studentna" in c or "student_name" in c or c == "name"), None) or \
+                   next((c for c in df.columns if "name" in c and "school" not in c), None)
+
+        absent_col = next((c for c in df.columns if "totalabse" in c or "days_absent" in c), None) or \
+                     next((c for c in df.columns if "absent" in c or "absence" in c or "unexcuse" in c), None)
+
+        grade_col = next((c for c in df.columns if "studentgra" in c or c == "grade" or "grade" in c), None)
+        
+        total_col = next((c for c in df.columns if "totalmem" in c or "total_days" in c or "enrolled" in c), None)
 
         missing_cols = []
         if not id_col:
@@ -282,8 +307,8 @@ def upload_file():
 
         records = []
         for _, row in df.iterrows():
-            absent_val = float(row[absent_col]) if pd.notnull(row[absent_col]) else 0.0
-            total_val = float(row[total_col]) if total_col and pd.notnull(row[total_col]) else 180.0
+            absent_val = safe_float_convert(row[absent_col], default=0.0)
+            total_val = safe_float_convert(row[total_col] if total_col else None, default=180.0)
             grade_val = str(row[grade_col]).strip() if grade_col and pd.notnull(row[grade_col]) else "N/A"
 
             student = Student(
