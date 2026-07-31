@@ -5,19 +5,19 @@ from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from jinja2 import FileSystemLoader
 
-# Dynamic path resolution to fix TemplateNotFound errors
-base_dir = os.path.abspath(os.path.dirname(__file__))
-template_dir = os.path.join(base_dir, 'templates')
+# Resolve the project root path explicitly
+base_dir = os.path.dirname(os.path.abspath(__file__))
 
-app = Flask(__name__, template_folder=template_dir)
-CORS(app)
-from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
-
-app = Flask(__name__, template_folder='.')
+app = Flask(__name__)
 CORS(app)
 
+# Explicitly register template paths so Jinja finds index.html
+app.jinja_loader = FileSystemLoader([
+    os.path.join(base_dir, 'templates'),
+    base_dir
+])
 # Database Configuration
 db_url = os.environ.get('DATABASE_URL')
 if db_url and db_url.startswith("postgres://"):
