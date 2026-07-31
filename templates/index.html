@@ -545,27 +545,41 @@
         }
 
         async function loadSchools() {
-            const res = await fetch('/schools');
-            const data = await res.json();
+            try {
+                const res = await fetch('/schools');
+                const data = await res.json();
 
-            const schoolSelect = document.getElementById('schoolSelect');
-            schoolSelect.innerHTML = '';
+                const schoolSelect = document.getElementById('schoolSelect');
+                schoolSelect.innerHTML = '';
 
-            data.schools.forEach(school => {
-                const opt = document.createElement('option');
-                opt.value = school.id;
-                opt.textContent = school.name;
-                schoolSelect.appendChild(opt);
-            });
+                if (!data.schools || data.schools.length === 0) {
+                    schoolSelect.innerHTML = '<option value="">No Schools Available</option>';
+                    return;
+                }
 
-            if (data.schools.length > 0) {
+                data.schools.forEach(school => {
+                    const opt = document.createElement('option');
+                    opt.value = school.id;
+                    opt.textContent = school.name;
+                    schoolSelect.appendChild(opt);
+                });
+
                 loadStudents();
+            } catch (err) {
+                console.error("Error loading schools:", err);
             }
         }
 
         async function loadStudents() {
-            const schoolId = document.getElementById('schoolSelect').value;
-            if (!schoolId) return;
+            const schoolSelect = document.getElementById('schoolSelect');
+            const schoolId = schoolSelect ? schoolSelect.value : null;
+
+            if (!schoolId) {
+                document.getElementById('statTotal').textContent = '0';
+                document.getElementById('statChronic').textContent = '0';
+                document.getElementById('studentTableBody').innerHTML = '';
+                return;
+            }
 
             const grade = document.getElementById('gradeSelect').value;
             const search = document.getElementById('searchInput').value;
@@ -573,59 +587,72 @@
 
             const query = new URLSearchParams({
                 school_id: schoolId,
-                grade: grade,
-                search: search,
-                chronic: chronic
+                grade: grade || '',
+                search: search || '',
+                chronic: chronic ? 'true' : 'false'
             });
 
-            const res = await fetch(`/students?${query.toString()}`);
-            const data = await res.json();
+            try {
+                const res = await fetch(`/students?${query.toString()}`);
+                const data = await res.json();
 
-            if (!res.ok) {
-                alert(data.error || "Failed to load student records.");
-                return;
+                if (!res.ok) {
+                    alert(data.error || "Failed to load student records.");
+                    return;
+                }
+
+                document.getElementById('statTotal').textContent = data.total_students || 0;
+                document.getElementById('statChronic').textContent = data.chronic_count || 0;
+
+                const gradeSelect = document.getElementById('gradeSelect');
+                const currentGrade = gradeSelect.value;
+                
+                if (data.available_grades && data.available_grades.length > 0) {
+                    gradeSelect.innerHTML = '<option value="">All Grades</option>';
+                    data.available_grades.forEach(g => {
+                        const cleanGrade = g.trim();
+                        const opt = document.createElement('option');
+                        opt.value = cleanGrade;
+                        opt.textContent = `Grade ${cleanGrade}`;
+                        if (cleanGrade === currentGrade) opt.selected = true;
+                        gradeSelect.appendChild(opt);
+                    });
+                }
+
+                const tbody = document.getElementById('studentTableBody');
+                tbody.innerHTML = '';
+
+                if (!data.students || data.students.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No student records found matching filters.</td></tr>';
+                    return;
+                }
+
+                data.students.forEach(s => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${s.student_id}</td>
+                        <td><strong>${s.student_name}</strong></td>
+                        <td>${s.grade}</td>
+                        <td>${s.days_absent}</td>
+                        <td>${s.total_days}</td>
+                        <td>${s.absence_rate_pct}%</td>
+                        <td>
+                            <span class="badge ${s.is_chronic ? 'badge-chronic' : 'badge-normal'}">
+                                ${s.is_chronic ? 'Chronic' : 'Regular'}
+                            </span>
+                        </td>
+                        <td>${s.interventions_count}</td>
+                        <td>
+                            <button onclick="openInterventionModal(${s.db_id}, '${s.student_name}')" class="btn-secondary">
+                                Interventions
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error("Error loading students:", err);
             }
-
-            document.getElementById('statTotal').textContent = data.total_students;
-            document.getElementById('statChronic').textContent = data.chronic_count;
-
-            const gradeSelect = document.getElementById('gradeSelect');
-            const currentSelectedGrade = gradeSelect.value;
-            gradeSelect.innerHTML = '<option value="">All Grades</option>';
-            data.available_grades.forEach(g => {
-                const opt = document.createElement('option');
-                opt.value = g.trim();
-                opt.textContent = `Grade ${g.trim()}`;
-                if (g.trim() === currentSelectedGrade) opt.selected = true;
-                gradeSelect.appendChild(opt);
-            });
-
-            const tbody = document.getElementById('studentTableBody');
-            tbody.innerHTML = '';
-
-            data.students.forEach(s => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${s.student_id}</td>
-                    <td><strong>${s.student_name}</strong></td>
-                    <td>${s.grade}</td>
-                    <td>${s.days_absent}</td>
-                    <td>${s.total_days}</td>
-                    <td>${s.absence_rate_pct}%</td>
-                    <td>
-                        <span class="badge ${s.is_chronic ? 'badge-chronic' : 'badge-normal'}">
-                            ${s.is_chronic ? 'Chronic' : 'Regular'}
-                        </span>
-                    </td>
-                    <td>${s.interventions_count}</td>
-                    <td>
-                        <button onclick="openInterventionModal(${s.db_id}, '${s.student_name}')" class="btn-secondary">
-                            Interventions
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
         }
 
         async function handleFileUpload(e) {
