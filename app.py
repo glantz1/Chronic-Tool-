@@ -4,11 +4,12 @@ from flask import Flask, request, jsonify, render_template, session
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+from sqlalchemy import inspect, text
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "super-secret-key-change-in-prod")
 
-# Database setup
+# Database setup (PostgreSQL on Render, fallback to local SQLite)
 db_url = os.environ.get("DATABASE_URL", "sqlite:///attendance.db")
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
@@ -26,7 +27,7 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), default="staff")  # "admin" or "staff"
-    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True) # Null for Global Admins
+    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)  # Null for Global Admins
 
     school = db.relationship('School', backref='users', lazy=True)
 
@@ -60,38 +61,28 @@ class Intervention(db.Model):
     notes = db.Column(db.Text, nullable=True)
     logged_by = db.Column(db.String(120), nullable=True)
 
-# DB Initialization
+# -------------------------------------------------------------
+# DB INITIALIZATION & SAFE MIGRATION
+# -------------------------------------------------------------
 with app.app_context():
-   from sqlalchemy import inspect, text
-
-with app.app_context():
-    # 1. Create tables if they don't exist yet
     db.create_all()
 
-    # 2. Safely add missing columns to existing tables
+    # Safely migrate existing tables if school_id column is missing
     inspector = inspect(db.engine)
-    columns = [col['name'] for col in inspector.get_columns('user')]
-    
-    if 'school_id' not in columns:
-        with db.engine.connect() as conn:
-            conn.execute(text('ALTER TABLE "user" ADD COLUMN school_id INTEGER REFERENCES school(id);'))
-            conn.commit()
+    if "user" in inspector.get_table_names():
+        columns = [col['name'] for col in inspector.get_columns('user')]
+        if 'school_id' not in columns:
+            with db.engine.connect() as conn:
+                conn.execute(text('ALTER TABLE "user" ADD COLUMN school_id INTEGER REFERENCES school(id);'))
+                conn.commit()
 
-    # 3. Seed initial admin user if none exists
+    # Seed initial data if empty
     if not User.query.filter_by(role="admin").first():
-        default_admin = User(
-            email="admin@school.edu",
-            role="admin",
-            school_id=None
-        )
-        default_admin.set_password("admin123")
-        db.session.add(default_admin)
-        db.session.commit()
-        db.create_all()
-    if not User.query.filter_by(role="admin").first():
-        default_school = School(name="Main High School", grade_levels="9,10,11,12")
-        db.session.add(default_school)
-        db.session.commit()
+        default_school = School.query.first()
+        if not default_school:
+            default_school = School(name="Main High School", grade_levels="9,10,11,12")
+            db.session.add(default_school)
+            db.session.commit()
 
         default_admin = User(email="admin@school.edu", role="admin", school_id=None)
         default_admin.set_password("admin123")
@@ -173,7 +164,7 @@ def manage_users():
         email = data.get("email", "").strip().lower()
         password = data.get("password")
         role = data.get("role", "staff")
-        school_id = data.get("school_id")  # Can be integer ID or None for admins
+        school_id = data.get("school_id")
 
         if not email or not password:
             return jsonify({"error": "Email and password are required"}), 400
@@ -196,6 +187,24 @@ def manage_users():
         for u in users
     ]})
 
+@app.route("/admin/users/<int:user_id>", methods=["DELETE"])
+@admin_required
+def delete_user(user_id):
+    if session.get("user_id") == user_id:
+        return jsonify({"error": "You cannot delete your own account while logged in."}), 400
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    try:
+        db.session.delete(user)
+        db.session.commit()
+        return jsonify({"message": f"User '{user.email}' deleted successfully."})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to delete user: {str(e)}"}), 500
+
 @app.route("/admin/schools", methods=["POST"])
 @admin_required
 def add_school():
@@ -215,22 +224,8 @@ def add_school():
     return jsonify({"message": "School added successfully"})
 
 # -------------------------------------------------------------
-# RESTRICTED DATA ROUTES
+# FILE UPLOAD ROUTE (Enhanced Column Matching)
 # -------------------------------------------------------------
-@app.route("/schools", methods=["GET"])
-@login_required
-def get_schools():
-    user = User.query.get(session["user_id"])
-    
-    # If the user is staff, ONLY return their assigned school
-    if user.role != "admin" and user.school_id:
-        schools = School.query.filter_by(id=user.school_id).all()
-    else:
-        # Admins can see all schools
-        schools = School.query.all()
-        
-    return jsonify({"schools": [{"id": s.id, "name": s.name, "grade_levels": s.grade_levels.split(",")} for s in schools]})
-
 @app.route("/upload", methods=["POST"])
 @login_required
 def upload_file():
@@ -238,7 +233,6 @@ def upload_file():
     school_id = request.form.get("school_id")
     file = request.files.get("file")
 
-    # Security check: Ensure staff can only upload to their assigned school
     if user.role != "admin" and str(user.school_id) != str(school_id):
         return jsonify({"error": "Unauthorized: You do not have permissions to upload to this school."}), 403
 
@@ -256,19 +250,34 @@ def upload_file():
         elif filename.endswith((".xls", ".xlsx")):
             df = pd.read_excel(file)
         else:
-            return jsonify({"error": "Unsupported file format."}), 400
+            return jsonify({"error": "Unsupported file format. Please upload a .csv or .xlsx file."}), 400
 
+        # Clean and normalize column headers (lowercase, remove spaces/hyphens)
         df.columns = [str(c).strip().lower().replace(" ", "_").replace("-", "_") for c in df.columns]
 
-        id_col = next((c for c in df.columns if "id" in c or "student_id" in c), None)
-        name_col = next((c for c in df.columns if "name" in c or "student_name" in c), None)
-        absent_col = next((c for c in df.columns if "absent" in c or "absence" in c or "days_absent" in c), None)
+        # Flexible & truncated matching for required columns
+        id_col = next((c for c in df.columns if "studentnu" in c or "student_id" in c or c == "id" or "id" in c), None)
+        name_col = next((c for c in df.columns if "studentna" in c or "student_name" in c or c == "name" or "name" in c), None)
+        absent_col = next((c for c in df.columns if "totalabse" in c or "unexcuse" in c or "absent" in c or "absence" in c or "days_absent" in c), None)
+
+        # Flexible & truncated matching for optional columns
         grade_col = next((c for c in df.columns if "grade" in c or "level" in c), None)
-        total_col = next((c for c in df.columns if "total" in c or "enrolled" in c or "total_days" in c), None)
+        total_col = next((c for c in df.columns if "totalmem" in c or "totalminp" in c or "total" in c or "enrolled" in c or "total_days" in c), None)
 
-        if not id_col or not name_col or not absent_col:
-            return jsonify({"error": "CSV must have ID, Name, and Absences columns."}), 400
+        missing_cols = []
+        if not id_col:
+            missing_cols.append("ID (e.g., StudentNu, ID)")
+        if not name_col:
+            missing_cols.append("Name (e.g., StudentNa, Name)")
+        if not absent_col:
+            missing_cols.append("Absences (e.g., TotalAbse, Absences)")
 
+        if missing_cols:
+            return jsonify({
+                "error": f"Missing required column(s): {', '.join(missing_cols)}."
+            }), 400
+
+        # Refresh dataset for the designated school
         Student.query.filter_by(school_id=school_id).delete()
 
         records = []
@@ -289,11 +298,29 @@ def upload_file():
 
         db.session.bulk_save_objects(records)
         db.session.commit()
-        return jsonify({"message": f"Successfully processed {len(records)} records for {school.name}."})
+
+        return jsonify({
+            "message": f"Successfully processed {len(records)} student records for {school.name}."
+        })
 
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"File parsing failed: {str(e)}"}), 500
+
+# -------------------------------------------------------------
+# RESTRICTED DATA ROUTES
+# -------------------------------------------------------------
+@app.route("/schools", methods=["GET"])
+@login_required
+def get_schools():
+    user = User.query.get(session["user_id"])
+    
+    if user.role != "admin" and user.school_id:
+        schools = School.query.filter_by(id=user.school_id).all()
+    else:
+        schools = School.query.all()
+        
+    return jsonify({"schools": [{"id": s.id, "name": s.name, "grade_levels": s.grade_levels.split(",")} for s in schools]})
 
 @app.route("/students", methods=["GET"])
 @login_required
@@ -301,7 +328,6 @@ def get_students():
     user = User.query.get(session["user_id"])
     school_id = request.args.get("school_id")
 
-    # Security check: Force staff to only view their assigned school
     if user.role != "admin" and str(user.school_id) != str(school_id):
         return jsonify({"error": "Access denied to this school's data"}), 403
 
