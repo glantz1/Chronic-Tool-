@@ -11,7 +11,9 @@ from sqlalchemy import inspect, text
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "super-secret-key-change-in-prod")
 
-# Database setup (PostgreSQL on Render/Heroku, fallback to local SQLite)
+# -------------------------------------------------------------
+# DATABASE CONFIGURATION
+# -------------------------------------------------------------
 db_url = os.environ.get("DATABASE_URL", "sqlite:///attendance.db")
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
@@ -45,7 +47,7 @@ def calculate_chronic_status(student, threshold=90.0):
     day_rate = (student.days_absent / student.total_days * 100.0) if (student.total_days and student.total_days > 0) else 0.0
     min_rate = (student.minutes_absent / student.total_minutes * 100.0) if (student.total_minutes and student.total_minutes > 0) else 0.0
     
-    # Check PresentFTE3 priority first
+    # Priority check: PresentFTE3 from Column V
     if student.present_fte3 >= 0.0:
         attendance_rate = student.present_fte3
         absence_rate = 100.0 - attendance_rate
@@ -53,21 +55,20 @@ def calculate_chronic_status(student, threshold=90.0):
         absence_rate = max(day_rate, min_rate)
         attendance_rate = 100.0 - absence_rate
 
-    # Chronic threshold: Attendance < 90.0% (or Absence Rate >= 10.0%)
+    # Chronic threshold evaluation (< 90% Attendance or >= 10% Absence)
     is_chronic_fte3 = (student.present_fte3 >= 0.0 and student.present_fte3 < threshold)
     is_chronic_days = day_rate >= (100.0 - threshold)
     is_chronic_mins = min_rate >= (100.0 - threshold)
 
     is_chronic = is_chronic_fte3 or is_chronic_days or is_chronic_mins
 
+    # Standardized display wording (FTE3 terminology removed)
     reason = "Regular"
     if is_chronic:
-        if is_chronic_fte3:
-            reason = f"PresentFTE3 ({student.present_fte3:.1f}%) < {threshold:.0f}%"
-        elif is_chronic_days:
-            reason = f"Days Absent Rate ({day_rate:.1f}%) >= 10%"
-        elif is_chronic_mins:
-            reason = f"Minutes Absent Rate ({min_rate:.1f}%) >= 10%"
+        if is_chronic_fte3 or attendance_rate < threshold:
+            reason = f"Attendance Rate ({attendance_rate:.1f}%) < {threshold:.0f}%"
+        elif is_chronic_days or is_chronic_mins:
+            reason = f"Absence Rate ({absence_rate:.1f}%) >= 10%"
 
     return {
         "attendance_rate": round(attendance_rate, 1),
@@ -109,7 +110,7 @@ class Student(db.Model):
     total_days = db.Column(db.Float, nullable=False, default=180)
     minutes_absent = db.Column(db.Float, nullable=False, default=0)
     total_minutes = db.Column(db.Float, nullable=False, default=0)
-    present_fte3 = db.Column(db.Float, nullable=False, default=-1.0)  # PresentFTE3 Column V
+    present_fte3 = db.Column(db.Float, nullable=False, default=-1.0)  # Stores PresentFTE3 (Column V)
 
     interventions = db.relationship('Intervention', backref='student', cascade="all, delete-orphan", lazy=True)
 
@@ -122,14 +123,13 @@ class Intervention(db.Model):
     logged_by = db.Column(db.String(120), nullable=True)
 
 # -------------------------------------------------------------
-# DB INITIALIZATION & SAFE MIGRATION
+# DB INITIALIZATION & MIGRATIONS
 # -------------------------------------------------------------
 with app.app_context():
     db.create_all()
 
     inspector = inspect(db.engine)
     
-    # Table migrations if columns are missing in existing DB
     if "user" in inspector.get_table_names():
         columns = [col['name'] for col in inspector.get_columns('user')]
         if 'school_id' not in columns:
@@ -148,7 +148,7 @@ with app.app_context():
                 conn.execute(text('ALTER TABLE student ADD COLUMN present_fte3 FLOAT DEFAULT -1.0;'))
             conn.commit()
 
-    # Create default Admin if missing
+    # Create default admin if missing
     if not User.query.filter_by(role="admin").first():
         default_school = School.query.first()
         if not default_school:
@@ -162,7 +162,7 @@ with app.app_context():
         db.session.commit()
 
 # -------------------------------------------------------------
-# HELPER DECORATORS
+# AUTHENTICATION DECORATORS
 # -------------------------------------------------------------
 def login_required(f):
     @wraps(f)
@@ -226,7 +226,7 @@ def me():
     return jsonify({"logged_in": False})
 
 # -------------------------------------------------------------
-# ADMIN ROUTES
+# ADMIN MANAGEMENT ROUTES
 # -------------------------------------------------------------
 @app.route("/admin/users", methods=["GET", "POST"])
 @admin_required
@@ -296,7 +296,7 @@ def add_school():
     return jsonify({"message": "School added successfully"})
 
 # -------------------------------------------------------------
-# FILE UPLOAD ROUTE WITH PRESENTFTE3 TARGETING
+# FILE UPLOAD ROUTE
 # -------------------------------------------------------------
 @app.route("/upload", methods=["POST"])
 @login_required
@@ -325,15 +325,14 @@ def upload_file():
         else:
             return jsonify({"error": "Unsupported file format. Please upload a .csv or .xlsx file."}), 400
 
-        # Look specifically for 'PresentFTE3' (handling case/spaces) or Column V (Index 21)
+        # Look specifically for 'PresentFTE3' or Column V (Index 21) as fallback
         fte3_col = next(
             (c for c in df.columns if str(c).strip().replace(" ", "").replace("_", "") == "PresentFTE3"), 
             None
         )
         if not fte3_col and len(df.columns) > 21:
-            fte3_col = df.columns[21]  # Column V fallback
+            fte3_col = df.columns[21]
 
-        # Clean normalized headers for other general columns
         columns_lower = [str(c).strip().lower().replace(" ", "_").replace("-", "_") for c in df.columns]
 
         id_col = next((df.columns[i] for i, c in enumerate(columns_lower) if "studentnu" in c or "student_id" in c or c == "id"), None)
@@ -342,21 +341,12 @@ def upload_file():
         grade_col = next((df.columns[i] for i, c in enumerate(columns_lower) if "grade" in c), None)
         total_col = next((df.columns[i] for i, c in enumerate(columns_lower) if ("total_mem" in c or "membership" in c or "total_days" in c or "enrolled" in c) and "year" not in c and "date" not in c and "min" not in c), None)
 
-        missing_cols = []
-        if not id_col:
-            missing_cols.append("ID (e.g., StudentNu, ID)")
-        if not name_col:
-            missing_cols.append("Name (e.g., StudentNa, Name)")
+        if not id_col or not name_col:
+            return jsonify({"error": "Missing required Student ID or Name columns."}), 400
 
-        if missing_cols:
-            return jsonify({
-                "error": f"Missing required column(s): {', '.join(missing_cols)}."
-            }), 400
-
-        # Drop null/empty rows
         df = df.dropna(subset=[id_col, name_col])
 
-        # Delete existing school records to refresh dataset
+        # Overwrite current school dataset
         Student.query.filter_by(school_id=school_id).delete()
 
         records = []
@@ -372,15 +362,13 @@ def upload_file():
             if total_val > 300 or total_val <= 0:
                 total_val = 180.0
 
-            # Read PresentFTE3 Column V
             raw_fte3 = row[fte3_col] if fte3_col and fte3_col in row else None
             fte3_val = safe_float_convert(raw_fte3, default=-1.0)
 
-            # Convert decimal percentages (e.g., 0.885 -> 88.5%)
+            # Auto-convert decimal percentages (0.885 -> 88.5%)
             if 0.0 < fte3_val <= 1.0:
                 fte3_val = fte3_val * 100.0
 
-            # Auto-calculate absent days if missing when PresentFTE3 is present
             if fte3_val >= 0.0 and absent_val == 0.0 and total_val > 0:
                 absent_val = total_val * ((100.0 - fte3_val) / 100.0)
 
@@ -409,18 +397,16 @@ def upload_file():
         return jsonify({"error": f"File parsing failed: {str(e)}"}), 500
 
 # -------------------------------------------------------------
-# DATA RETRIEVAL ROUTES
+# STUDENT RETRIEVAL & INTERVENTIONS
 # -------------------------------------------------------------
 @app.route("/schools", methods=["GET"])
 @login_required
 def get_schools():
     user = User.query.get(session["user_id"])
-    
     if user.role != "admin" and user.school_id:
         schools = School.query.filter_by(id=user.school_id).all()
     else:
         schools = School.query.all()
-        
     return jsonify({"schools": [{"id": s.id, "name": s.name, "grade_levels": s.grade_levels.split(",")} for s in schools]})
 
 @app.route("/students", methods=["GET"])
@@ -430,7 +416,7 @@ def get_students():
     school_id = request.args.get("school_id")
 
     if user.role != "admin" and str(user.school_id) != str(school_id):
-        return jsonify({"error": "Access denied to this school's data"}), 403
+        return jsonify({"error": "Access denied"}), 403
 
     if not school_id:
         return jsonify({"students": [], "total_students": 0, "chronic_count": 0})
@@ -462,7 +448,6 @@ def get_students():
             "grade": s.grade,
             "days_absent": round(s.days_absent, 2),
             "total_days": s.total_days,
-            "present_fte3": round(s.present_fte3, 2) if s.present_fte3 >= 0.0 else None,
             "absence_rate_pct": status_info["absence_rate"],
             "attendance_rate_pct": status_info["attendance_rate"],
             "is_chronic": status_info["is_chronic"],
@@ -483,6 +468,13 @@ def get_students():
 @app.route("/interventions", methods=["GET", "POST"])
 @login_required
 def handle_interventions():
+    # Supported Action Types:
+    # - Phone Call
+    # - Parent Conference
+    # - Attendance Letter
+    # - Power School Message
+    # - Student Conference
+    # - Court Referred
     if request.method == "POST":
         data = request.json or {}
         student_db_id = data.get("student_db_id")
@@ -516,5 +508,8 @@ def handle_interventions():
         } for i in interventions]
     })
 
+# -------------------------------------------------------------
+# APPLICATION ENTRYPOINT
+# -------------------------------------------------------------
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
