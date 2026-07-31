@@ -14,6 +14,7 @@
             --text-muted: #64748b;
             --border-color: #e2e8f0;
             --danger: #ef4444;
+            --danger-hover: #dc2626;
             --warning: #f59e0b;
             --success: #10b981;
         }
@@ -97,7 +98,10 @@
 
         button.btn-danger {
             background-color: var(--danger);
+            color: white;
         }
+
+        button.btn-danger:hover { background-color: var(--danger-hover); }
 
         .form-group {
             margin-bottom: 15px;
@@ -437,11 +441,11 @@
             </div>
 
             <div class="tabs">
-                <button class="tab-btn active" onclick="switchAdminTab('usersTab')">Create User</button>
-                <button class="tab-btn" onclick="switchAdminTab('schoolsTab')">Add School</button>
+                <button class="tab-btn active" onclick="switchAdminTab('usersTab', event)">Manage Users</button>
+                <button class="tab-btn" onclick="switchAdminTab('schoolsTab', event)">Add School</button>
             </div>
 
-            <!-- Tab: Create User -->
+            <!-- Tab: Create & Manage Users -->
             <div id="usersTab">
                 <form onsubmit="handleCreateUser(event)">
                     <div class="form-group">
@@ -756,12 +760,53 @@
             const container = document.getElementById('userListTableContainer');
             if (!data.users) return;
 
-            let html = `<table><thead><tr><th>Email</th><th>Role</th><th>School</th></tr></thead><tbody>`;
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>School</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+            
             data.users.forEach(u => {
-                html += `<tr><td>${u.email}</td><td>${u.role}</td><td>${u.school_name}</td></tr>`;
+                html += `
+                    <tr>
+                        <td>${u.email}</td>
+                        <td><span class="badge ${u.role === 'admin' ? 'badge-chronic' : 'badge-normal'}">${u.role}</span></td>
+                        <td>${u.school_name}</td>
+                        <td>
+                            <button class="btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" onclick="deleteUser(${u.id}, '${u.email}')">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>`;
             });
+            
             html += `</tbody></table>`;
             container.innerHTML = html;
+        }
+
+        async function deleteUser(userId, email) {
+            if (!confirm(`Are you sure you want to delete user "${email}"? This action cannot be undone.`)) {
+                return;
+            }
+
+            const res = await fetch(`/admin/users/${userId}`, {
+                method: 'DELETE'
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                alert(data.message);
+                loadAdminUsersList();
+            } else {
+                alert(data.error);
+            }
         }
 
         function toggleSchoolAssignment(role) {
@@ -819,13 +864,13 @@
             }
         }
 
-        function switchAdminTab(tabName) {
+        function switchAdminTab(tabName, evt) {
             document.getElementById('usersTab').classList.add('hidden');
             document.getElementById('schoolsTab').classList.add('hidden');
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
 
             document.getElementById(tabName).classList.remove('hidden');
-            event.target.classList.add('active');
+            if (evt) evt.target.classList.add('active');
         }
 
         // --- GENERAL MODAL HELPERS ---
