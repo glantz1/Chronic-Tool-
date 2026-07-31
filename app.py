@@ -30,7 +30,6 @@ def safe_float_convert(val, default=0.0):
     try:
         return float(val)
     except (ValueError, TypeError):
-        # Extract the first float or integer found in the text string
         match = re.search(r"[-+]?\d*\.\d+|\d+", str(val))
         if match:
             try:
@@ -47,7 +46,7 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), default="staff")  # "admin" or "staff"
-    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)  # Null for Global Admins
+    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)
 
     school = db.relationship('School', backref='users', lazy=True)
 
@@ -70,6 +69,8 @@ class Student(db.Model):
     grade = db.Column(db.String(20), nullable=False)
     days_absent = db.Column(db.Float, nullable=False, default=0)
     total_days = db.Column(db.Float, nullable=False, default=180)
+    minutes_absent = db.Column(db.Float, nullable=False, default=0)
+    total_minutes = db.Column(db.Float, nullable=False, default=0)
 
     interventions = db.relationship('Intervention', backref='student', cascade="all, delete-orphan", lazy=True)
 
@@ -87,7 +88,6 @@ class Intervention(db.Model):
 with app.app_context():
     db.create_all()
 
-    # Safely migrate existing tables if school_id column is missing
     inspector = inspect(db.engine)
     if "user" in inspector.get_table_names():
         columns = [col['name'] for col in inspector.get_columns('user')]
@@ -96,7 +96,15 @@ with app.app_context():
                 conn.execute(text('ALTER TABLE "user" ADD COLUMN school_id INTEGER REFERENCES school(id);'))
                 conn.commit()
 
-    # Seed initial data if empty
+    if "student" in inspector.get_table_names():
+        columns = [col['name'] for col in inspector.get_columns('student')]
+        with db.engine.connect() as conn:
+            if 'minutes_absent' not in columns:
+                conn.execute(text('ALTER TABLE student ADD COLUMN minutes_absent FLOAT DEFAULT 0;'))
+            if 'total_minutes' not in columns:
+                conn.execute(text('ALTER TABLE student ADD COLUMN total_minutes FLOAT DEFAULT 0;'))
+            conn.commit()
+
     if not User.query.filter_by(role="admin").first():
         default_school = School.query.first()
         if not default_school:
@@ -287,8 +295,12 @@ def upload_file():
 
         grade_col = next((c for c in df.columns if "studentgra" in c or c == "grade" or "grade" in c), None)
         
-        # Look specifically for Total Membership while avoiding year/date columns
-        total_col = next((c for c in df.columns if ("total_mem" in c or "membership" in c or "total_days" in c or "enrolled" in c) and "year" not in c and "date" not in c), None)
+        # Look specifically for Total Membership while avoiding year/date/minute columns
+        total_col = next((c for c in df.columns if ("total_mem" in c or "membership" in c or "total_days" in c or "enrolled" in c) and "year" not in c and "date" not in c and "min" not in c), None)
+
+        # Match Minute Columns
+        min_absent_col = next((c for c in df.columns if "min" in c and ("abs" in c or "miss" in c or "tardy" in c)), None)
+        min_total_col = next((c for c in df.columns if "min" in c and ("tot" in c or "sched" in c or "poss" in c or "mem" in c or "enrol" in c)), None)
 
         missing_cols = []
         if not id_col:
@@ -312,10 +324,11 @@ def upload_file():
             
             # Extract total membership days
             total_val = safe_float_convert(row[total_col] if total_col else None, default=180.0)
-            
-            # Guardrail: If total_val parsed as a year (>300) or <=0, fallback to 180.0
             if total_val > 300 or total_val <= 0:
                 total_val = 180.0
+
+            min_absent_val = safe_float_convert(row[min_absent_col] if min_absent_col else None, default=0.0)
+            min_total_val = safe_float_convert(row[min_total_col] if min_total_col else None, default=0.0)
 
             grade_val = str(row[grade_col]).strip() if grade_col and pd.notnull(row[grade_col]) else "N/A"
 
@@ -325,7 +338,9 @@ def upload_file():
                 name=str(row[name_col]).strip(),
                 grade=grade_val,
                 days_absent=absent_val,
-                total_days=total_val
+                total_days=total_val,
+                minutes_absent=min_absent_val,
+                total_minutes=min_total_val
             )
             records.append(student)
 
@@ -379,8 +394,14 @@ def get_students():
     filtered = []
 
     for s in students:
-        rate = (s.days_absent / s.total_days) * 100 if s.total_days > 0 else 0
-        is_chronic = rate >= 10.0
+        day_rate = (s.days_absent / s.total_days) * 100.0 if s.total_days > 0 else 0.0
+        min_rate = (s.minutes_absent / s.total_minutes) * 100.0 if s.total_minutes > 0 else 0.0
+
+        is_chronic_days = day_rate >= 10.0
+        is_chronic_mins = min_rate >= 10.0
+        is_chronic = is_chronic_days or is_chronic_mins
+
+        primary_rate = max(day_rate, min_rate)
 
         if chronic_only and not is_chronic:
             continue
@@ -395,8 +416,11 @@ def get_students():
             "grade": s.grade,
             "days_absent": s.days_absent,
             "total_days": s.total_days,
-            "absence_rate_pct": round(rate, 1),
+            "minutes_absent": s.minutes_absent,
+            "total_minutes": s.total_minutes,
+            "absence_rate_pct": round(primary_rate, 1),
             "is_chronic": is_chronic,
+            "chronic_reason": "Minutes" if (is_chronic_mins and not is_chronic_days) else ("Days" if (is_chronic_days and not is_chronic_mins) else "Both"),
             "interventions_count": len(s.interventions)
         })
 
