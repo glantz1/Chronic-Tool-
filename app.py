@@ -244,7 +244,7 @@ def add_school():
     return jsonify({"message": "School added successfully"})
 
 # -------------------------------------------------------------
-# FILE UPLOAD ROUTE (Enhanced Column Matching & Safe Type Conversion)
+# FILE UPLOAD ROUTE
 # -------------------------------------------------------------
 @app.route("/upload", methods=["POST"])
 @login_required
@@ -275,7 +275,7 @@ def upload_file():
         # Clean and normalize column headers
         df.columns = [str(c).strip().lower().replace(" ", "_").replace("-", "_") for c in df.columns]
 
-        # Explicit matching priorities to avoid picking up date ranges like "LastEnroll"
+        # Explicit matching priorities
         id_col = next((c for c in df.columns if "studentnu" in c or "student_id" in c or c == "id"), None) or \
                  next((c for c in df.columns if "id" in c and "school" not in c), None)
 
@@ -287,7 +287,8 @@ def upload_file():
 
         grade_col = next((c for c in df.columns if "studentgra" in c or c == "grade" or "grade" in c), None)
         
-        total_col = next((c for c in df.columns if "totalmem" in c or "total_days" in c or "enrolled" in c), None)
+        # Look specifically for Total Membership while avoiding year/date columns
+        total_col = next((c for c in df.columns if ("total_mem" in c or "membership" in c or "total_days" in c or "enrolled" in c) and "year" not in c and "date" not in c), None)
 
         missing_cols = []
         if not id_col:
@@ -308,7 +309,14 @@ def upload_file():
         records = []
         for _, row in df.iterrows():
             absent_val = safe_float_convert(row[absent_col], default=0.0)
+            
+            # Extract total membership days
             total_val = safe_float_convert(row[total_col] if total_col else None, default=180.0)
+            
+            # Guardrail: If total_val parsed as a year (>300) or <=0, fallback to 180.0
+            if total_val > 300 or total_val <= 0:
+                total_val = 180.0
+
             grade_val = str(row[grade_col]).strip() if grade_col and pd.notnull(row[grade_col]) else "N/A"
 
             student = Student(
@@ -317,7 +325,7 @@ def upload_file():
                 name=str(row[name_col]).strip(),
                 grade=grade_val,
                 days_absent=absent_val,
-                total_days=total_val if total_val > 0 else 180.0
+                total_days=total_val
             )
             records.append(student)
 
