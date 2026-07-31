@@ -29,7 +29,6 @@
             margin: 0 auto;
         }
 
-        /* Authentication Screen Styles */
         #auth-screen {
             display: flex;
             justify-content: center;
@@ -44,7 +43,7 @@
             padding: 32px;
             width: 100%;
             max-width: 400px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
 
         .auth-card h2 {
@@ -52,29 +51,6 @@
             margin-bottom: 20px;
             text-align: center;
             color: var(--primary);
-        }
-
-        .tab-buttons {
-            display: flex;
-            margin-bottom: 20px;
-            border-bottom: 2px solid var(--border);
-        }
-
-        .tab-btn {
-            flex: 1;
-            padding: 10px;
-            background: none;
-            border: none;
-            color: #64748b;
-            font-weight: 600;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -2px;
-        }
-
-        .tab-btn.active {
-            color: var(--primary);
-            border-color: var(--primary);
         }
 
         header {
@@ -108,18 +84,10 @@
             text-align: center;
             cursor: pointer;
             background: #eff6ff;
-            transition: all 0.2s ease;
         }
 
         .dropzone.dragover {
             background: #dbeafe;
-            border-color: var(--primary-hover);
-        }
-
-        .dropzone p {
-            margin: 0;
-            font-weight: 500;
-            color: #3b82f6;
         }
 
         .controls {
@@ -165,25 +133,10 @@
             background-color: var(--primary-hover);
         }
 
-        .btn-full {
-            width: 100%;
-            padding: 12px;
-        }
-
-        .btn-sm {
-            padding: 6px 10px;
-            font-size: 12px;
-        }
-
-        .btn-outline {
-            background: transparent;
-            border: 1px solid var(--border);
-            color: var(--text);
-        }
-
-        .btn-outline:hover {
-            background: #f1f5f9;
-        }
+        .btn-full { width: 100%; padding: 12px; }
+        .btn-sm { padding: 6px 10px; font-size: 12px; }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .btn-outline:hover { background: #f1f5f9; }
 
         .stats-grid {
             display: grid;
@@ -200,33 +153,12 @@
             text-align: center;
         }
 
-        .stat-card h3 {
-            margin: 0 0 8px 0;
-            font-size: 14px;
-            color: #64748b;
-        }
+        .stat-card h3 { margin: 0 0 8px 0; font-size: 14px; color: #64748b; }
+        .stat-card p { margin: 0; font-size: 28px; font-weight: bold; }
 
-        .stat-card p {
-            margin: 0;
-            font-size: 28px;
-            font-weight: bold;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 12px;
-        }
-
-        th, td {
-            text-align: left;
-            padding: 12px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        th {
-            background-color: #f1f5f9;
-        }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid var(--border); }
+        th { background-color: #f1f5f9; }
 
         .badge-chronic {
             background: #fee2e2;
@@ -237,12 +169,6 @@
             font-size: 12px;
         }
 
-        .status-msg {
-            margin-top: 10px;
-            font-weight: 500;
-        }
-
-        /* Modal Styles */
         .modal {
             display: none;
             position: fixed;
@@ -258,7 +184,7 @@
             padding: 24px;
             border-radius: 8px;
             width: 100%;
-            max-width: 500px;
+            max-width: 550px;
         }
     </style>
 </head>
@@ -266,21 +192,14 @@
 
 <div class="container">
 
-    <!-- 1. AUTHENTICATION GATEWAY (Shown by default) -->
+    <!-- LOGIN SCREEN -->
     <div id="auth-screen">
         <div class="auth-card">
             <h2>Absenteeism Tracker</h2>
-            
-            <div class="tab-buttons">
-                <button class="tab-btn active" id="tabLogin" onclick="switchAuthTab('login')">Log In</button>
-                <button class="tab-btn" id="tabRegister" onclick="switchAuthTab('register')">Register</button>
-            </div>
-
-            <!-- Login Form -->
             <form id="loginForm" onsubmit="handleLogin(event)">
                 <div class="form-group">
-                    <label for="loginUsername">Username</label>
-                    <input type="text" id="loginUsername" required autocomplete="username">
+                    <label for="loginEmail">Email Address</label>
+                    <input type="email" id="loginEmail" placeholder="user@school.edu" required autocomplete="username">
                 </div>
                 <div class="form-group">
                     <label for="loginPassword">Password</label>
@@ -288,32 +207,11 @@
                 </div>
                 <button type="submit" class="btn-full">Log In</button>
             </form>
-
-            <!-- Register Form (Hidden by default) -->
-            <form id="registerForm" onsubmit="handleRegister(event)" style="display: none;">
-                <div class="form-group">
-                    <label for="regUsername">Choose Username</label>
-                    <input type="text" id="regUsername" required autocomplete="username">
-                </div>
-                <div class="form-group">
-                    <label for="regPassword">Choose Password</label>
-                    <input type="password" id="regPassword" required autocomplete="new-password">
-                </div>
-                <div class="form-group">
-                    <label for="regRole">Role</label>
-                    <select id="regRole">
-                        <option value="staff">Staff</option>
-                        <option value="admin">Administrator</option>
-                    </select>
-                </div>
-                <button type="submit" class="btn-full">Create Account</button>
-            </form>
-
-            <div id="authError" class="status-msg" style="color: var(--danger); text-align: center;"></div>
+            <div id="authError" style="color: var(--danger); text-align: center; margin-top: 10px;"></div>
         </div>
     </div>
 
-    <!-- 2. MAIN DASHBOARD (Hidden until authenticated) -->
+    <!-- MAIN DASHBOARD -->
     <div id="dashboard-screen" style="display: none;">
         <header>
             <h2>Chronic Absenteeism Tracking Tool</h2>
@@ -327,6 +225,7 @@
                 
                 <div id="userDisplay" style="display: flex; align-items: center; gap: 10px;">
                     <span id="welcomeUser"></span>
+                    <button id="adminBtn" class="btn-outline btn-sm" onclick="openAdminModal()" style="display: none;">⚙️ Admin Panel</button>
                     <button class="btn-outline btn-sm" onclick="handleLogout()">Log Out</button>
                 </div>
             </div>
@@ -339,7 +238,7 @@
                 <p>📁 Drag and drop your attendance file here, or click to select</p>
                 <input type="file" id="fileInput" accept=".csv, .xlsx, .xls" style="display: none;">
             </div>
-            <div id="uploadStatus" class="status-msg"></div>
+            <div id="uploadStatus" style="margin-top: 10px;"></div>
         </div>
 
         <!-- Metrics -->
@@ -358,10 +257,9 @@
             </div>
         </div>
 
-        <!-- Student List & Filtering -->
+        <!-- Roster Table -->
         <div class="card">
             <h3>Student Attendance Roster</h3>
-            
             <div class="controls">
                 <input type="text" id="searchInput" placeholder="Search by name or ID..." onkeyup="loadStudents()">
                 
@@ -396,7 +294,59 @@
     </div>
 </div>
 
-<!-- Log Intervention Modal -->
+<!-- ADMIN PANEL MODAL -->
+<div id="adminModal" class="modal">
+    <div class="modal-content">
+        <h3>System Administration</h3>
+        
+        <!-- Tab Navigation -->
+        <div style="display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 1px solid var(--border);">
+            <button class="btn-outline btn-sm" onclick="switchAdminTab('users')">Manage Users</button>
+            <button class="btn-outline btn-sm" onclick="switchAdminTab('schools')">Manage Schools & Grades</button>
+        </div>
+
+        <!-- Add User Form -->
+        <div id="adminTabUsers">
+            <h4>Create New User</h4>
+            <div class="form-group">
+                <label>User Email</label>
+                <input type="email" id="newUserEmail" placeholder="teacher@school.edu">
+            </div>
+            <div class="form-group">
+                <label>Set Password</label>
+                <input type="password" id="newUserPassword">
+            </div>
+            <div class="form-group">
+                <label>Role</label>
+                <select id="newUserRole">
+                    <option value="staff">Staff Member</option>
+                    <option value="admin">Administrator</option>
+                </select>
+            </div>
+            <button onclick="createUser()">Create User Account</button>
+        </div>
+
+        <!-- Add School Form -->
+        <div id="adminTabSchools" style="display: none;">
+            <h4>Add New School</h4>
+            <div class="form-group">
+                <label>School Name</label>
+                <input type="text" id="newSchoolName" placeholder="Lincoln Middle School">
+            </div>
+            <div class="form-group">
+                <label>Grade Levels (comma separated)</label>
+                <input type="text" id="newSchoolGrades" placeholder="6,7,8">
+            </div>
+            <button onclick="createSchool()">Add School</button>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+            <button class="btn-outline" onclick="closeModal('adminModal')">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- INTERVENTION MODAL -->
 <div id="interventionModal" class="modal">
     <div class="modal-content">
         <h3 id="modalStudentName">Log Action / Intervention</h3>
@@ -417,7 +367,7 @@
         </div>
         <div class="form-group">
             <label for="intNotes">Notes</label>
-            <textarea id="intNotes" rows="3" placeholder="Enter intervention notes..."></textarea>
+            <textarea id="intNotes" rows="3" placeholder="Enter notes..."></textarea>
         </div>
 
         <div style="margin-top: 15px;">
@@ -433,43 +383,20 @@
 </div>
 
 <script>
-    const authScreen = document.getElementById('auth-screen');
-    const dashboardScreen = document.getElementById('dashboard-screen');
-    const authError = document.getElementById('authError');
-    const dropzone = document.getElementById('dropzone');
-    const fileInput = document.getElementById('fileInput');
-    const uploadStatus = document.getElementById('uploadStatus');
-
     document.addEventListener('DOMContentLoaded', () => {
         checkUserSession();
         document.getElementById('intDate').valueAsDate = new Date();
     });
 
     // -------------------------------------------------------------
-    // AUTHENTICATION FLOW
+    // AUTH & SESSION
     // -------------------------------------------------------------
-    function switchAuthTab(tab) {
-        authError.textContent = '';
-        if (tab === 'login') {
-            document.getElementById('loginForm').style.display = 'block';
-            document.getElementById('registerForm').style.display = 'none';
-            document.getElementById('tabLogin').classList.add('active');
-            document.getElementById('tabRegister').classList.remove('active');
-        } else {
-            document.getElementById('loginForm').style.display = 'none';
-            document.getElementById('registerForm').style.display = 'block';
-            document.getElementById('tabRegister').classList.add('active');
-            document.getElementById('tabLogin').classList.remove('active');
-        }
-    }
-
     async function checkUserSession() {
         try {
             const res = await fetch('/me');
             const data = await res.json();
-            
             if (data.logged_in) {
-                showDashboard(data.user.username);
+                showDashboard(data.user);
             } else {
                 showAuthScreen();
             }
@@ -480,53 +407,20 @@
 
     async function handleLogin(e) {
         e.preventDefault();
-        authError.textContent = '';
-        const username = document.getElementById('loginUsername').value;
+        const email = document.getElementById('loginEmail').value;
         const password = document.getElementById('loginPassword').value;
 
-        try {
-            const res = await fetch('/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
-            const data = await res.json();
+        const res = await fetch('/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
 
-            if (res.ok) {
-                showDashboard(data.user.username);
-            } else {
-                authError.textContent = data.error || 'Invalid username or password';
-            }
-        } catch (err) {
-            authError.textContent = 'Server connection failed';
-        }
-    }
-
-    async function handleRegister(e) {
-        e.preventDefault();
-        authError.textContent = '';
-        const username = document.getElementById('regUsername').value;
-        const password = document.getElementById('regPassword').value;
-        const role = document.getElementById('regRole').value;
-
-        try {
-            const res = await fetch('/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password, role })
-            });
-            const data = await res.json();
-
-            if (res.ok) {
-                alert('Account created! Logging you in...');
-                document.getElementById('loginUsername').value = username;
-                document.getElementById('loginPassword').value = password;
-                handleLogin(e);
-            } else {
-                authError.textContent = data.error || 'Registration failed';
-            }
-        } catch (err) {
-            authError.textContent = 'Server connection failed';
+        const data = await res.json();
+        if (res.ok) {
+            showDashboard(data.user);
+        } else {
+            document.getElementById('authError').textContent = data.error;
         }
     }
 
@@ -535,43 +429,91 @@
         showAuthScreen();
     }
 
-    function showDashboard(username) {
-        authScreen.style.display = 'none';
-        dashboardScreen.style.display = 'block';
-        document.getElementById('welcomeUser').innerHTML = `👤 <strong>${username}</strong>`;
+    function showDashboard(user) {
+        document.getElementById('auth-screen').style.display = 'none';
+        document.getElementById('dashboard-screen').style.display = 'block';
+        document.getElementById('welcomeUser').innerHTML = `👤 <strong>${user.email}</strong>`;
+
+        if (user.role === 'admin') {
+            document.getElementById('adminBtn').style.display = 'inline-block';
+        }
+
         fetchSchools();
     }
 
     function showAuthScreen() {
-        authScreen.style.display = 'flex';
-        dashboardScreen.style.display = 'none';
-        document.getElementById('loginUsername').value = '';
-        document.getElementById('loginPassword').value = '';
+        document.getElementById('auth-screen').style.display = 'flex';
+        document.getElementById('dashboard-screen').style.display = 'none';
     }
 
     // -------------------------------------------------------------
-    // DATA LOADING & FILTERS
+    // ADMIN FUNCTIONS
+    // -------------------------------------------------------------
+    function openAdminModal() { openModal('adminModal'); }
+    
+    function switchAdminTab(tab) {
+        document.getElementById('adminTabUsers').style.display = tab === 'users' ? 'block' : 'none';
+        document.getElementById('adminTabSchools').style.display = tab === 'schools' ? 'block' : 'none';
+    }
+
+    async function createUser() {
+        const email = document.getElementById('newUserEmail').value;
+        const password = document.getElementById('newUserPassword').value;
+        const role = document.getElementById('newUserRole').value;
+
+        const res = await fetch('/admin/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, role })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            alert(data.message);
+            document.getElementById('newUserEmail').value = '';
+            document.getElementById('newUserPassword').value = '';
+        } else {
+            alert(data.error);
+        }
+    }
+
+    async function createSchool() {
+        const name = document.getElementById('newSchoolName').value;
+        const grade_levels = document.getElementById('newSchoolGrades').value;
+
+        const res = await fetch('/admin/schools', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, grade_levels })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            alert(data.message);
+            document.getElementById('newSchoolName').value = '';
+            fetchSchools();
+        } else {
+            alert(data.error);
+        }
+    }
+
+    // -------------------------------------------------------------
+    // DATA & ROSTER FUNCTIONS
     // -------------------------------------------------------------
     async function fetchSchools() {
-        try {
-            const res = await fetch('/schools');
-            const data = await res.json();
-            const select = document.getElementById('schoolSelect');
-            select.innerHTML = '';
-            
-            data.schools.forEach(s => {
-                const opt = document.createElement('option');
-                opt.value = s.id;
-                opt.textContent = s.name;
-                select.appendChild(opt);
-            });
+        const res = await fetch('/schools');
+        const data = await res.json();
+        const select = document.getElementById('schoolSelect');
+        select.innerHTML = '';
+        
+        data.schools.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.name;
+            select.appendChild(opt);
+        });
 
-            if (data.schools.length > 0) {
-                loadStudents();
-            }
-        } catch (err) {
-            console.error("Failed to load schools:", err);
-        }
+        if (data.schools.length > 0) loadStudents();
     }
 
     async function loadStudents() {
@@ -584,76 +526,67 @@
 
         const url = `/students?school_id=${schoolId}&grade=${encodeURIComponent(grade)}&chronic=${chronic}&search=${encodeURIComponent(search)}`;
 
-        try {
-            const res = await fetch(url);
-            const data = await res.json();
+        const res = await fetch(url);
+        const data = await res.json();
 
-            document.getElementById('statTotal').textContent = data.total_students;
-            document.getElementById('statChronic').textContent = data.chronic_count;
-            const rate = data.total_students > 0 ? ((data.chronic_count / data.total_students) * 100).toFixed(1) : 0;
-            document.getElementById('statRate').textContent = `${rate}%`;
+        document.getElementById('statTotal').textContent = data.total_students;
+        document.getElementById('statChronic').textContent = data.chronic_count;
+        const rate = data.total_students > 0 ? ((data.chronic_count / data.total_students) * 100).toFixed(1) : 0;
+        document.getElementById('statRate').textContent = `${rate}%`;
 
-            const gradeSelect = document.getElementById('gradeFilter');
-            if (gradeSelect.options.length <= 1 && data.available_grades) {
-                data.available_grades.forEach(g => {
-                    const opt = document.createElement('option');
-                    opt.value = g;
-                    opt.textContent = `Grade ${g}`;
-                    gradeSelect.appendChild(opt);
-                });
-            }
-
-            const tbody = document.getElementById('studentTableBody');
-            tbody.innerHTML = '';
-
-            if (data.students.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #64748b;">No matching student records found.</td></tr>';
-                return;
-            }
-
-            data.students.forEach(s => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${s.student_id}</td>
-                    <td><strong>${s.student_name}</strong></td>
-                    <td>${s.grade}</td>
-                    <td>${s.days_absent}</td>
-                    <td>${s.total_days}</td>
-                    <td>${s.absence_rate_pct}%</td>
-                    <td>${s.is_chronic ? '<span class="badge-chronic">CHRONIC</span>' : '<span style="color:#10b981;">Normal</span>'}</td>
-                    <td>
-                        <button class="btn-sm btn-outline" onclick="openInterventionModal(${s.db_id}, '${s.student_name.replace(/'/g, "\\'")}')">
-                            📝 Actions (${s.interventions_count})
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
+        // Load grade level options dynamically per selected school
+        const gradeSelect = document.getElementById('gradeFilter');
+        gradeSelect.innerHTML = '<option value="">All Grades</option>';
+        if (data.available_grades) {
+            data.available_grades.forEach(g => {
+                const opt = document.createElement('option');
+                opt.value = g;
+                opt.textContent = `Grade ${g}`;
+                if (g === grade) opt.selected = true;
+                gradeSelect.appendChild(opt);
             });
-        } catch (err) {
-            console.error("Failed to load student roster:", err);
         }
+
+        const tbody = document.getElementById('studentTableBody');
+        tbody.innerHTML = '';
+
+        if (data.students.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #64748b;">No matching student records found.</td></tr>';
+            return;
+        }
+
+        data.students.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${s.student_id}</td>
+                <td><strong>${s.student_name}</strong></td>
+                <td>${s.grade}</td>
+                <td>${s.days_absent}</td>
+                <td>${s.total_days}</td>
+                <td>${s.absence_rate_pct}%</td>
+                <td>${s.is_chronic ? '<span class="badge-chronic">CHRONIC</span>' : '<span style="color:#10b981;">Normal</span>'}</td>
+                <td>
+                    <button class="btn-sm btn-outline" onclick="openInterventionModal(${s.db_id}, '${s.student_name.replace(/'/g, "\\'")}')">
+                        📝 Actions (${s.interventions_count})
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
     }
 
     // -------------------------------------------------------------
-    // INTERVENTIONS
+    // INTERVENTIONS & UPLOAD HANDLERS
     // -------------------------------------------------------------
-    async function openInterventionModal(dbId, studentName) {
+    async function openInterventionModal(dbId, name) {
         document.getElementById('modalStudentDbId').value = dbId;
-        document.getElementById('modalStudentName').textContent = `Actions for ${studentName}`;
+        document.getElementById('modalStudentName').textContent = `Actions for ${name}`;
         openModal('interventionModal');
-        loadStudentInterventions(dbId);
-    }
-
-    async function loadStudentInterventions(dbId) {
+        
         const res = await fetch(`/interventions?student_db_id=${dbId}`);
         const data = await res.json();
         const container = document.getElementById('previousInterventions');
-        container.innerHTML = '';
-
-        if (data.interventions.length === 0) {
-            container.innerHTML = '<em>No interventions logged yet.</em>';
-            return;
-        }
+        container.innerHTML = data.interventions.length === 0 ? '<em>No interventions logged yet.</em>' : '';
 
         data.interventions.forEach(i => {
             const div = document.createElement('div');
@@ -666,28 +599,27 @@
 
     async function saveIntervention() {
         const dbId = document.getElementById('modalStudentDbId').value;
-        const date = document.getElementById('intDate').value;
-        const type = document.getElementById('intType').value;
-        const notes = document.getElementById('intNotes').value;
-
         const res = await fetch('/interventions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ student_db_id: dbId, date, type, notes })
+            body: JSON.stringify({
+                student_db_id: dbId,
+                date: document.getElementById('intDate').value,
+                type: document.getElementById('intType').value,
+                notes: document.getElementById('intNotes').value
+            })
         });
 
         if (res.ok) {
             document.getElementById('intNotes').value = '';
-            loadStudentInterventions(dbId);
+            openInterventionModal(dbId, '');
             loadStudents();
-        } else {
-            alert('Failed to save intervention');
         }
     }
 
-    // -------------------------------------------------------------
-    // DROPZONE & FILE UPLOAD
-    // -------------------------------------------------------------
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+
     dropzone.addEventListener('click', () => fileInput.click());
     dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
     dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
@@ -702,34 +634,26 @@
 
     async function handleFileUpload(file) {
         const schoolId = document.getElementById('schoolSelect').value;
-        if (!schoolId) { alert('Please select a school first.'); return; }
-
         const formData = new FormData();
         formData.append('file', file);
         formData.append('school_id', schoolId);
 
-        uploadStatus.style.color = '#2563eb';
-        uploadStatus.textContent = `Processing "${file.name}"...`;
+        const status = document.getElementById('uploadStatus');
+        status.textContent = "Uploading...";
 
-        try {
-            const res = await fetch('/upload', { method: 'POST', body: formData });
-            const data = await res.json();
-
-            if (res.ok) {
-                uploadStatus.style.color = '#10b981';
-                uploadStatus.textContent = `Success: ${data.message}`;
-                loadStudents();
-            } else {
-                uploadStatus.style.color = '#ef4444';
-                uploadStatus.textContent = `Error: ${data.error}`;
-            }
-        } catch (err) {
-            uploadStatus.style.color = '#ef4444';
-            uploadStatus.textContent = `Upload failed: ${err.message}`;
+        const res = await fetch('/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        
+        if (res.ok) {
+            status.style.color = '#10b981';
+            status.textContent = data.message;
+            loadStudents();
+        } else {
+            status.style.color = '#ef4444';
+            status.textContent = data.error;
         }
     }
 
-    // Modal Helpers
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 </script>
