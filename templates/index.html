@@ -3,660 +3,834 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chronic Absenteeism Tool</title>
+    <title>Student Attendance & Intervention Tracker</title>
     <style>
         :root {
             --primary: #2563eb;
             --primary-hover: #1d4ed8;
-            --bg: #f8fafc;
+            --bg-color: #f8fafc;
             --card-bg: #ffffff;
-            --text: #0f172a;
-            --border: #e2e8f0;
+            --text-dark: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
             --danger: #ef4444;
+            --warning: #f59e0b;
             --success: #10b981;
         }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
+        * {
+            box-sizing: border-box;
             margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            line-height: 1.5;
             padding: 20px;
         }
 
         .container {
-            max-width: 1150px;
+            max-width: 1200px;
             margin: 0 auto;
         }
 
-        #auth-screen {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 80vh;
-        }
+        /* Utility Classes */
+        .hidden { display: none !important; }
+        .flex { display: flex; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .gap-10 { gap: 10px; }
+        .gap-20 { gap: 20px; }
 
+        /* Auth View */
         .auth-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 32px;
-            width: 100%;
             max-width: 400px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin: 80px auto;
+            padding: 30px;
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            border: 1px solid var(--border-color);
         }
 
         .auth-card h2 {
-            margin-top: 0;
             margin-bottom: 20px;
             text-align: center;
-            color: var(--primary);
         }
 
+        /* Navigation Header */
         header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-            border-bottom: 2px solid var(--border);
-            padding-bottom: 12px;
-        }
-
-        .header-actions {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .card {
             background: var(--card-bg);
-            border: 1px solid var(--border);
+            padding: 15px 25px;
             border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            border: 1px solid var(--border-color);
+            margin-bottom: 20px;
         }
 
-        .dropzone {
-            border: 2px dashed var(--primary);
-            border-radius: 8px;
-            padding: 30px;
-            text-align: center;
-            cursor: pointer;
-            background: #eff6ff;
+        .user-badge {
+            font-size: 0.9rem;
+            color: var(--text-muted);
         }
 
-        .dropzone.dragover {
-            background: #dbeafe;
-        }
-
-        .controls {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 16px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        select, input, button, textarea {
-            padding: 10px 14px;
-            border: 1px solid var(--border);
+        /* Buttons & Controls */
+        button {
+            padding: 8px 16px;
             border-radius: 6px;
-            font-size: 14px;
+            border: none;
+            background-color: var(--primary);
+            color: white;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover { background-color: var(--primary-hover); }
+
+        button.btn-secondary {
+            background-color: #e2e8f0;
+            color: var(--text-dark);
+        }
+
+        button.btn-secondary:hover { background-color: #cbd5e1; }
+
+        button.btn-danger {
+            background-color: var(--danger);
         }
 
         .form-group {
-            margin-bottom: 16px;
+            margin-bottom: 15px;
         }
 
         .form-group label {
             display: block;
-            margin-bottom: 6px;
+            font-size: 0.85rem;
             font-weight: 600;
-            font-size: 14px;
+            margin-bottom: 5px;
+            color: var(--text-muted);
         }
 
-        .form-group input, .form-group select, .form-group textarea {
+        input, select, textarea {
             width: 100%;
-            box-sizing: border-box;
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 0.95rem;
+            outline: none;
         }
 
-        button {
-            background-color: var(--primary);
-            color: white;
-            border: none;
-            cursor: pointer;
-            font-weight: 600;
+        input:focus, select:focus, textarea:focus {
+            border-color: var(--primary);
         }
 
-        button:hover {
-            background-color: var(--primary-hover);
-        }
-
-        .btn-full { width: 100%; padding: 12px; }
-        .btn-sm { padding: 6px 10px; font-size: 12px; }
-        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
-        .btn-outline:hover { background: #f1f5f9; }
-
+        /* Stats Cards */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
         }
 
         .stat-card {
             background: var(--card-bg);
-            border: 1px solid var(--border);
-            padding: 16px;
+            padding: 20px;
             border-radius: 8px;
-            text-align: center;
+            border: 1px solid var(--border-color);
         }
 
-        .stat-card h3 { margin: 0 0 8px 0; font-size: 14px; color: #64748b; }
-        .stat-card p { margin: 0; font-size: 28px; font-weight: bold; }
+        .stat-card h3 {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
 
-        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-        th, td { text-align: left; padding: 12px; border-bottom: 1px solid var(--border); }
-        th { background-color: #f1f5f9; }
-
-        .badge-chronic {
-            background: #fee2e2;
-            color: #991b1b;
-            padding: 4px 8px;
-            border-radius: 4px;
+        .stat-card .value {
+            font-size: 1.8rem;
             font-weight: bold;
-            font-size: 12px;
+            margin-top: 5px;
         }
 
-        .modal {
-            display: none;
+        /* Control Panel / Filters */
+        .controls-card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        .filter-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            align-items: flex-end;
+        }
+
+        /* Data Tables */
+        .table-container {
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.95rem;
+        }
+
+        th {
+            background-color: #f1f5f9;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        tr:hover { background-color: #f8fafc; }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-chronic { background: #fee2e2; color: #991b1b; }
+        .badge-normal { background: #d1fae5; color: #065f46; }
+
+        /* Modals */
+        .modal-overlay {
             position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
+            top: 0; left: 0; right: 0; bottom: 0;
             background: rgba(0,0,0,0.5);
+            display: flex;
             align-items: center;
             justify-content: center;
             z-index: 1000;
         }
 
-        .modal-content {
+        .modal {
             background: white;
-            padding: 24px;
+            padding: 25px;
             border-radius: 8px;
             width: 100%;
-            max-width: 550px;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .close-btn:hover { color: var(--text-dark); background: none; }
+
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 15px;
+        }
+
+        .tab-btn {
+            padding: 8px 16px;
+            background: none;
+            color: var(--text-muted);
+            border-bottom: 2px solid transparent;
+            border-radius: 0;
+        }
+
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            font-weight: 600;
+        }
+
+        .intervention-item {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            padding: 10px 14px;
+            border-radius: 6px;
+            margin-bottom: 10px;
         }
     </style>
 </head>
 <body>
 
-<div class="container">
-
-    <!-- LOGIN SCREEN -->
-    <div id="auth-screen">
-        <div class="auth-card">
-            <h2>Absenteeism Tracker</h2>
+    <div class="container">
+        <!-- ------------------------------------------------------------- -->
+        <!-- AUTHENTICATION VIEW -->
+        <!-- ------------------------------------------------------------- -->
+        <div id="authContainer" class="auth-card">
+            <h2>Sign In</h2>
             <form id="loginForm" onsubmit="handleLogin(event)">
                 <div class="form-group">
                     <label for="loginEmail">Email Address</label>
-                    <input type="email" id="loginEmail" placeholder="user@school.edu" required autocomplete="username">
+                    <input type="email" id="loginEmail" required placeholder="staff@school.edu">
                 </div>
                 <div class="form-group">
                     <label for="loginPassword">Password</label>
-                    <input type="password" id="loginPassword" required autocomplete="current-password">
+                    <input type="password" id="loginPassword" required>
                 </div>
-                <button type="submit" class="btn-full">Log In</button>
+                <button type="submit" style="width: 100%;">Log In</button>
             </form>
-            <div id="authError" style="color: var(--danger); text-align: center; margin-top: 10px;"></div>
+        </div>
+
+        <!-- ------------------------------------------------------------- -->
+        <!-- MAIN DASHBOARD APP CONTAINER -->
+        <!-- ------------------------------------------------------------- -->
+        <div id="appContainer" class="hidden">
+            <!-- Header -->
+            <header class="flex-between">
+                <div>
+                    <h2>Attendance Dashboard</h2>
+                    <span id="userBadge" class="user-badge"></span>
+                </div>
+                <div class="flex gap-10">
+                    <button id="adminBtn" class="btn-secondary hidden" onclick="openAdminModal()">Admin Panel</button>
+                    <button class="btn-secondary" onclick="handleLogout()">Log Out</button>
+                </div>
+            </header>
+
+            <!-- Stats Overview -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>Total Enrolled</h3>
+                    <div id="statTotal" class="value">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Chronically Absent (&ge;10%)</h3>
+                    <div id="statChronic" class="value" style="color: var(--danger);">0</div>
+                </div>
+            </div>
+
+            <!-- Upload & Filters Card -->
+            <div class="controls-card">
+                <div class="filter-row" style="margin-bottom: 15px;">
+                    <div class="form-group">
+                        <label for="schoolSelect">School</label>
+                        <select id="schoolSelect" onchange="loadStudents()">
+                            <!-- Options populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="gradeSelect">Grade Filter</label>
+                        <select id="gradeSelect" onchange="loadStudents()">
+                            <option value="">All Grades</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="searchInput">Search Student</label>
+                        <input type="text" id="searchInput" placeholder="Search by name or ID..." oninput="loadStudents()">
+                    </div>
+                    <div class="form-group" style="padding-bottom: 8px;">
+                        <label>
+                            <input type="checkbox" id="chronicOnlyCheck" onchange="loadStudents()">
+                            Show Chronic Absenteeism Only
+                        </label>
+                    </div>
+                </div>
+
+                <hr style="border: 0; border-top: 1px solid var(--border-color); margin-bottom: 15px;">
+
+                <!-- File Upload Section -->
+                <form id="uploadForm" class="flex gap-10" onsubmit="handleFileUpload(event)">
+                    <div style="flex-grow: 1;">
+                        <input type="file" id="fileInput" accept=".csv, .xls, .xlsx" required>
+                    </div>
+                    <button type="submit" class="btn-secondary">Upload CSV/Excel</button>
+                </form>
+            </div>
+
+            <!-- Student Data Table -->
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Student Name</th>
+                            <th>Grade</th>
+                            <th>Absences</th>
+                            <th>Total Days</th>
+                            <th>Absence Rate</th>
+                            <th>Status</th>
+                            <th>Interventions</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="studentTableBody">
+                        <!-- Populated dynamically -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
-    <!-- MAIN DASHBOARD -->
-    <div id="dashboard-screen" style="display: none;">
-        <header>
-            <h2>Chronic Absenteeism Tracking Tool</h2>
-            <div class="header-actions">
-                <div>
-                    <label for="schoolSelect"><strong>School:</strong> </label>
-                    <select id="schoolSelect" onchange="loadStudents()">
-                        <!-- Populated via API -->
+    <!-- ------------------------------------------------------------- -->
+    <!-- INTERVENTION MODAL -->
+    <!-- ------------------------------------------------------------- -->
+    <div id="interventionModal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="interventionStudentName">Student Interventions</h3>
+                <button class="close-btn" onclick="closeModal('interventionModal')">&times;</button>
+            </div>
+
+            <form id="interventionForm" onsubmit="handleSaveIntervention(event)" class="form-group">
+                <input type="hidden" id="interventStudentDbId">
+                <div class="form-group">
+                    <label for="interventDate">Date</label>
+                    <input type="date" id="interventDate" required>
+                </div>
+                <div class="form-group">
+                    <label for="interventType">Action / Intervention Type</label>
+                    <select id="interventType" required>
+                        <option value="Parent Phone Call">Parent Phone Call</option>
+                        <option value="Parent Meeting">Parent Meeting</option>
+                        <option value="Attendance Contract">Attendance Contract</option>
+                        <option value="Home Visit">Home Visit</option>
+                        <option value="Counselor Referral">Counselor Referral</option>
                     </select>
                 </div>
-                
-                <div id="userDisplay" style="display: flex; align-items: center; gap: 10px;">
-                    <span id="welcomeUser"></span>
-                    <button id="adminBtn" class="btn-outline btn-sm" onclick="openAdminModal()" style="display: none;">⚙️ Admin Panel</button>
-                    <button class="btn-outline btn-sm" onclick="handleLogout()">Log Out</button>
+                <div class="form-group">
+                    <label for="interventNotes">Notes</label>
+                    <textarea id="interventNotes" rows="3" placeholder="Enter log details..."></textarea>
+                </div>
+                <button type="submit">Log Intervention</button>
+            </form>
+
+            <h4 style="margin: 15px 0 10px 0;">History Log</h4>
+            <div id="interventionHistory">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- ------------------------------------------------------------- -->
+    <!-- ADMIN MODAL -->
+    <!-- ------------------------------------------------------------- -->
+    <div id="adminModal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Admin Control Panel</h3>
+                <button class="close-btn" onclick="closeModal('adminModal')">&times;</button>
+            </div>
+
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchAdminTab('usersTab')">Create User</button>
+                <button class="tab-btn" onclick="switchAdminTab('schoolsTab')">Add School</button>
+            </div>
+
+            <!-- Tab: Create User -->
+            <div id="usersTab">
+                <form onsubmit="handleCreateUser(event)">
+                    <div class="form-group">
+                        <label for="newUserEmail">User Email</label>
+                        <input type="email" id="newUserEmail" required placeholder="staff@school.edu">
+                    </div>
+                    <div class="form-group">
+                        <label for="newUserPassword">Password</label>
+                        <input type="password" id="newUserPassword" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newUserRole">Role</label>
+                        <select id="newUserRole" onchange="toggleSchoolAssignment(this.value)">
+                            <option value="staff">Staff Member</option>
+                            <option value="admin">Administrator (Global Access)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="userSchoolGroup">
+                        <label for="newUserSchool">Assigned School</label>
+                        <select id="newUserSchool">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    <button type="submit">Create Account</button>
+                </form>
+
+                <h4 style="margin: 20px 0 10px 0;">Existing Accounts</h4>
+                <div id="userListTableContainer">
+                    <!-- Populated dynamically -->
                 </div>
             </div>
-        </header>
 
-        <!-- Upload Section -->
-        <div class="card">
-            <h3>Upload Attendance CSV / Excel</h3>
-            <div class="dropzone" id="dropzone">
-                <p>📁 Drag and drop your attendance file here, or click to select</p>
-                <input type="file" id="fileInput" accept=".csv, .xlsx, .xls" style="display: none;">
-            </div>
-            <div id="uploadStatus" style="margin-top: 10px;"></div>
-        </div>
-
-        <!-- Metrics -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>Total Students</h3>
-                <p id="statTotal">0</p>
-            </div>
-            <div class="stat-card">
-                <h3>Chronically Absent</h3>
-                <p id="statChronic" style="color: var(--danger);">0</p>
-            </div>
-            <div class="stat-card">
-                <h3>Chronic Rate</h3>
-                <p id="statRate">0%</p>
+            <!-- Tab: Add School -->
+            <div id="schoolsTab" class="hidden">
+                <form onsubmit="handleAddSchool(event)">
+                    <div class="form-group">
+                        <label for="newSchoolName">School Name</label>
+                        <input type="text" id="newSchoolName" required placeholder="Main High School">
+                    </div>
+                    <div class="form-group">
+                        <label for="newSchoolGrades">Grade Levels (comma separated)</label>
+                        <input type="text" id="newSchoolGrades" value="9,10,11,12" required>
+                    </div>
+                    <button type="submit">Add School</button>
+                </form>
             </div>
         </div>
+    </div>
 
-        <!-- Roster Table -->
-        <div class="card">
-            <h3>Student Attendance Roster</h3>
-            <div class="controls">
-                <input type="text" id="searchInput" placeholder="Search by name or ID..." onkeyup="loadStudents()">
+    <!-- ------------------------------------------------------------- -->
+    <!-- APPLICATION LOGIC (JAVASCRIPT) -->
+    <!-- ------------------------------------------------------------- -->
+    <script>
+        let currentUser = null;
+
+        // --- AUTHENTICATION & INITIALIZATION ---
+        document.addEventListener('DOMContentLoaded', checkAuth);
+
+        async function checkAuth() {
+            try {
+                const res = await fetch('/me');
+                const data = await res.json();
                 
-                <select id="gradeFilter" onchange="loadStudents()">
-                    <option value="">All Grades</option>
-                </select>
+                if (data.logged_in) {
+                    currentUser = data.user;
+                    document.getElementById('authContainer').classList.add('hidden');
+                    document.getElementById('appContainer').classList.remove('hidden');
+                    document.getElementById('userBadge').textContent = `${currentUser.email} (${currentUser.role.toUpperCase()})`;
 
-                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="checkbox" id="chronicOnly" onchange="loadStudents()"> 
-                    Show Chronically Absent Only
-                </label>
-            </div>
+                    if (currentUser.role === 'admin') {
+                        document.getElementById('adminBtn').classList.remove('hidden');
+                    } else {
+                        document.getElementById('adminBtn').classList.add('hidden');
+                    }
 
-            <table>
-                <thead>
-                    <tr>
-                        <th>Student ID</th>
-                        <th>Name</th>
-                        <th>Grade</th>
-                        <th>Absences</th>
-                        <th>Total Days</th>
-                        <th>Absence Rate</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="studentTableBody">
-                    <tr><td colspan="8" style="text-align: center; color: #64748b;">No data loaded. Upload a file to view roster.</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<!-- ADMIN PANEL MODAL -->
-<div id="adminModal" class="modal">
-    <div class="modal-content">
-        <h3>System Administration</h3>
-        
-        <!-- Tab Navigation -->
-        <div style="display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 1px solid var(--border);">
-            <button class="btn-outline btn-sm" onclick="switchAdminTab('users')">Manage Users</button>
-            <button class="btn-outline btn-sm" onclick="switchAdminTab('schools')">Manage Schools & Grades</button>
-        </div>
-
-        <!-- Add User Form -->
-        <div id="adminTabUsers">
-            <h4>Create New User</h4>
-            <div class="form-group">
-                <label>User Email</label>
-                <input type="email" id="newUserEmail" placeholder="teacher@school.edu">
-            </div>
-            <div class="form-group">
-                <label>Set Password</label>
-                <input type="password" id="newUserPassword">
-            </div>
-            <div class="form-group">
-                <label>Role</label>
-                <select id="newUserRole">
-                    <option value="staff">Staff Member</option>
-                    <option value="admin">Administrator</option>
-                </select>
-            </div>
-            <button onclick="createUser()">Create User Account</button>
-        </div>
-
-        <!-- Add School Form -->
-        <div id="adminTabSchools" style="display: none;">
-            <h4>Add New School</h4>
-            <div class="form-group">
-                <label>School Name</label>
-                <input type="text" id="newSchoolName" placeholder="Lincoln Middle School">
-            </div>
-            <div class="form-group">
-                <label>Grade Levels (comma separated)</label>
-                <input type="text" id="newSchoolGrades" placeholder="6,7,8">
-            </div>
-            <button onclick="createSchool()">Add School</button>
-        </div>
-
-        <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
-            <button class="btn-outline" onclick="closeModal('adminModal')">Close</button>
-        </div>
-    </div>
-</div>
-
-<!-- INTERVENTION MODAL -->
-<div id="interventionModal" class="modal">
-    <div class="modal-content">
-        <h3 id="modalStudentName">Log Action / Intervention</h3>
-        <input type="hidden" id="modalStudentDbId">
-        
-        <div class="form-group">
-            <label for="intDate">Date</label>
-            <input type="date" id="intDate">
-        </div>
-        <div class="form-group">
-            <label for="intType">Action Type</label>
-            <select id="intType">
-                <option value="Parent Contact">Parent Contact (Phone/Email)</option>
-                <option value="Attendance Contract">Attendance Contract</option>
-                <option value="Home Visit">Home Visit</option>
-                <option value="Counseling / SST">Counseling / SST Meeting</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label for="intNotes">Notes</label>
-            <textarea id="intNotes" rows="3" placeholder="Enter notes..."></textarea>
-        </div>
-
-        <div style="margin-top: 15px;">
-            <h4>Previous Logged Actions:</h4>
-            <div id="previousInterventions" style="max-height: 150px; overflow-y: auto; font-size: 13px;"></div>
-        </div>
-
-        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px;">
-            <button type="button" class="btn-outline" onclick="closeModal('interventionModal')">Cancel</button>
-            <button type="button" onclick="saveIntervention()">Save Action</button>
-        </div>
-    </div>
-</div>
-
-<script>
-    document.addEventListener('DOMContentLoaded', () => {
-        checkUserSession();
-        document.getElementById('intDate').valueAsDate = new Date();
-    });
-
-    // -------------------------------------------------------------
-    // AUTH & SESSION
-    // -------------------------------------------------------------
-    async function checkUserSession() {
-        try {
-            const res = await fetch('/me');
-            const data = await res.json();
-            if (data.logged_in) {
-                showDashboard(data.user);
-            } else {
-                showAuthScreen();
+                    await loadSchools();
+                } else {
+                    document.getElementById('authContainer').classList.remove('hidden');
+                    document.getElementById('appContainer').classList.add('hidden');
+                }
+            } catch (err) {
+                console.error("Auth check failed:", err);
             }
-        } catch (err) {
-            showAuthScreen();
-        }
-    }
-
-    async function handleLogin(e) {
-        e.preventDefault();
-        const email = document.getElementById('loginEmail').value;
-        const password = document.getElementById('loginPassword').value;
-
-        const res = await fetch('/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-        });
-
-        const data = await res.json();
-        if (res.ok) {
-            showDashboard(data.user);
-        } else {
-            document.getElementById('authError').textContent = data.error;
-        }
-    }
-
-    async function handleLogout() {
-        await fetch('/logout', { method: 'POST' });
-        showAuthScreen();
-    }
-
-    function showDashboard(user) {
-        document.getElementById('auth-screen').style.display = 'none';
-        document.getElementById('dashboard-screen').style.display = 'block';
-        document.getElementById('welcomeUser').innerHTML = `👤 <strong>${user.email}</strong>`;
-
-        if (user.role === 'admin') {
-            document.getElementById('adminBtn').style.display = 'inline-block';
         }
 
-        fetchSchools();
-    }
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
 
-    function showAuthScreen() {
-        document.getElementById('auth-screen').style.display = 'flex';
-        document.getElementById('dashboard-screen').style.display = 'none';
-    }
+            const res = await fetch('/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
 
-    // -------------------------------------------------------------
-    // ADMIN FUNCTIONS
-    // -------------------------------------------------------------
-    function openAdminModal() { openModal('adminModal'); }
-    
-    function switchAdminTab(tab) {
-        document.getElementById('adminTabUsers').style.display = tab === 'users' ? 'block' : 'none';
-        document.getElementById('adminTabSchools').style.display = tab === 'schools' ? 'block' : 'none';
-    }
-
-    async function createUser() {
-        const email = document.getElementById('newUserEmail').value;
-        const password = document.getElementById('newUserPassword').value;
-        const role = document.getElementById('newUserRole').value;
-
-        const res = await fetch('/admin/users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, role })
-        });
-        const data = await res.json();
-
-        if (res.ok) {
-            alert(data.message);
-            document.getElementById('newUserEmail').value = '';
-            document.getElementById('newUserPassword').value = '';
-        } else {
-            alert(data.error);
+            const data = await res.json();
+            if (res.ok) {
+                checkAuth();
+            } else {
+                alert(data.error || 'Login failed.');
+            }
         }
-    }
 
-    async function createSchool() {
-        const name = document.getElementById('newSchoolName').value;
-        const grade_levels = document.getElementById('newSchoolGrades').value;
-
-        const res = await fetch('/admin/schools', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, grade_levels })
-        });
-        const data = await res.json();
-
-        if (res.ok) {
-            alert(data.message);
-            document.getElementById('newSchoolName').value = '';
-            fetchSchools();
-        } else {
-            alert(data.error);
+        async function handleLogout() {
+            await fetch('/logout', { method: 'POST' });
+            checkAuth();
         }
-    }
 
-    // -------------------------------------------------------------
-    // DATA & ROSTER FUNCTIONS
-    // -------------------------------------------------------------
-    async function fetchSchools() {
-        const res = await fetch('/schools');
-        const data = await res.json();
-        const select = document.getElementById('schoolSelect');
-        select.innerHTML = '';
-        
-        data.schools.forEach(s => {
-            const opt = document.createElement('option');
-            opt.value = s.id;
-            opt.textContent = s.name;
-            select.appendChild(opt);
-        });
+        // --- DATA LOADING & DASHBOARD ---
+        async function loadSchools() {
+            const res = await fetch('/schools');
+            const data = await res.json();
 
-        if (data.schools.length > 0) loadStudents();
-    }
+            const schoolSelect = document.getElementById('schoolSelect');
+            schoolSelect.innerHTML = '';
 
-    async function loadStudents() {
-        const schoolId = document.getElementById('schoolSelect').value;
-        if (!schoolId) return;
+            data.schools.forEach(school => {
+                const opt = document.createElement('option');
+                opt.value = school.id;
+                opt.textContent = school.name;
+                schoolSelect.appendChild(opt);
+            });
 
-        const grade = document.getElementById('gradeFilter').value;
-        const chronic = document.getElementById('chronicOnly').checked;
-        const search = document.getElementById('searchInput').value;
+            if (data.schools.length > 0) {
+                loadStudents();
+            }
+        }
 
-        const url = `/students?school_id=${schoolId}&grade=${encodeURIComponent(grade)}&chronic=${chronic}&search=${encodeURIComponent(search)}`;
+        async function loadStudents() {
+            const schoolId = document.getElementById('schoolSelect').value;
+            if (!schoolId) return;
 
-        const res = await fetch(url);
-        const data = await res.json();
+            const grade = document.getElementById('gradeSelect').value;
+            const search = document.getElementById('searchInput').value;
+            const chronic = document.getElementById('chronicOnlyCheck').checked;
 
-        document.getElementById('statTotal').textContent = data.total_students;
-        document.getElementById('statChronic').textContent = data.chronic_count;
-        const rate = data.total_students > 0 ? ((data.chronic_count / data.total_students) * 100).toFixed(1) : 0;
-        document.getElementById('statRate').textContent = `${rate}%`;
+            const query = new URLSearchParams({
+                school_id: schoolId,
+                grade: grade,
+                search: search,
+                chronic: chronic
+            });
 
-        // Load grade level options dynamically per selected school
-        const gradeSelect = document.getElementById('gradeFilter');
-        gradeSelect.innerHTML = '<option value="">All Grades</option>';
-        if (data.available_grades) {
+            const res = await fetch(`/students?${query.toString()}`);
+            const data = await res.json();
+
+            if (!res.ok) {
+                alert(data.error || "Failed to load student records.");
+                return;
+            }
+
+            // Update Statistics
+            document.getElementById('statTotal').textContent = data.total_students;
+            document.getElementById('statChronic').textContent = data.chronic_count;
+
+            // Update Grade Filter Dropdown
+            const gradeSelect = document.getElementById('gradeSelect');
+            const currentSelectedGrade = gradeSelect.value;
+            gradeSelect.innerHTML = '<option value="">All Grades</option>';
             data.available_grades.forEach(g => {
                 const opt = document.createElement('option');
-                opt.value = g;
-                opt.textContent = `Grade ${g}`;
-                if (g === grade) opt.selected = true;
+                opt.value = g.trim();
+                opt.textContent = `Grade ${g.trim()}`;
+                if (g.trim() === currentSelectedGrade) opt.selected = true;
                 gradeSelect.appendChild(opt);
+            });
+
+            // Populate Table
+            const tbody = document.getElementById('studentTableBody');
+            tbody.innerHTML = '';
+
+            data.students.forEach(s => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${s.student_id}</td>
+                    <td><strong>${s.student_name}</strong></td>
+                    <td>${s.grade}</td>
+                    <td>${s.days_absent}</td>
+                    <td>${s.total_days}</td>
+                    <td>${s.absence_rate_pct}%</td>
+                    <td>
+                        <span class="badge ${s.is_chronic ? 'badge-chronic' : 'badge-normal'}">
+                            ${s.is_chronic ? 'Chronic' : 'Regular'}
+                        </span>
+                    </td>
+                    <td>${s.interventions_count}</td>
+                    <td>
+                        <button onclick="openInterventionModal(${s.db_id}, '${s.student_name}')" class="btn-secondary">
+                            Interventions
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
             });
         }
 
-        const tbody = document.getElementById('studentTableBody');
-        tbody.innerHTML = '';
+        // --- FILE UPLOAD ---
+        async function handleFileUpload(e) {
+            e.preventDefault();
+            const schoolId = document.getElementById('schoolSelect').value;
+            const fileInput = document.getElementById('fileInput');
 
-        if (data.students.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #64748b;">No matching student records found.</td></tr>';
-            return;
+            if (!fileInput.files.length) {
+                alert("Please select a CSV or Excel file.");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('school_id', schoolId);
+            formData.append('file', fileInput.files[0]);
+
+            const res = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+                alert(data.message);
+                fileInput.value = '';
+                loadStudents();
+            } else {
+                alert(data.error);
+            }
         }
 
-        data.students.forEach(s => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${s.student_id}</td>
-                <td><strong>${s.student_name}</strong></td>
-                <td>${s.grade}</td>
-                <td>${s.days_absent}</td>
-                <td>${s.total_days}</td>
-                <td>${s.absence_rate_pct}%</td>
-                <td>${s.is_chronic ? '<span class="badge-chronic">CHRONIC</span>' : '<span style="color:#10b981;">Normal</span>'}</td>
-                <td>
-                    <button class="btn-sm btn-outline" onclick="openInterventionModal(${s.db_id}, '${s.student_name.replace(/'/g, "\\'")}')">
-                        📝 Actions (${s.interventions_count})
-                    </button>
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-    }
-
-    // -------------------------------------------------------------
-    // INTERVENTIONS & UPLOAD HANDLERS
-    // -------------------------------------------------------------
-    async function openInterventionModal(dbId, name) {
-        document.getElementById('modalStudentDbId').value = dbId;
-        document.getElementById('modalStudentName').textContent = `Actions for ${name}`;
-        openModal('interventionModal');
-        
-        const res = await fetch(`/interventions?student_db_id=${dbId}`);
-        const data = await res.json();
-        const container = document.getElementById('previousInterventions');
-        container.innerHTML = data.interventions.length === 0 ? '<em>No interventions logged yet.</em>' : '';
-
-        data.interventions.forEach(i => {
-            const div = document.createElement('div');
-            div.style.padding = "6px 0";
-            div.style.borderBottom = "1px solid #e2e8f0";
-            div.innerHTML = `<strong>${i.date} - ${i.type}</strong> (${i.logged_by || 'Staff'})<br><span>${i.notes || 'No notes'}</span>`;
-            container.appendChild(div);
-        });
-    }
-
-    async function saveIntervention() {
-        const dbId = document.getElementById('modalStudentDbId').value;
-        const res = await fetch('/interventions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                student_db_id: dbId,
-                date: document.getElementById('intDate').value,
-                type: document.getElementById('intType').value,
-                notes: document.getElementById('intNotes').value
-            })
-        });
-
-        if (res.ok) {
-            document.getElementById('intNotes').value = '';
-            openInterventionModal(dbId, '');
-            loadStudents();
+        // --- INTERVENTIONS ---
+        async function openInterventionModal(studentDbId, studentName) {
+            document.getElementById('interventStudentDbId').value = studentDbId;
+            document.getElementById('interventionStudentName').textContent = `Interventions: ${studentName}`;
+            document.getElementById('interventDate').valueAsDate = new Date();
+            
+            openModal('interventionModal');
+            loadInterventions(studentDbId);
         }
-    }
 
-    const dropzone = document.getElementById('dropzone');
-    const fileInput = document.getElementById('fileInput');
+        async function loadInterventions(studentDbId) {
+            const res = await fetch(`/interventions?student_db_id=${studentDbId}`);
+            const data = await res.json();
 
-    dropzone.addEventListener('click', () => fileInput.click());
-    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
-    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
-    dropzone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropzone.classList.remove('dragover');
-        if (e.dataTransfer.files.length > 0) handleFileUpload(e.dataTransfer.files[0]);
-    });
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) handleFileUpload(e.target.files[0]);
-    });
+            const container = document.getElementById('interventionHistory');
+            container.innerHTML = '';
 
-    async function handleFileUpload(file) {
-        const schoolId = document.getElementById('schoolSelect').value;
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('school_id', schoolId);
+            if (data.interventions.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">No interventions logged yet.</p>';
+                return;
+            }
 
-        const status = document.getElementById('uploadStatus');
-        status.textContent = "Uploading...";
-
-        const res = await fetch('/upload', { method: 'POST', body: formData });
-        const data = await res.json();
-        
-        if (res.ok) {
-            status.style.color = '#10b981';
-            status.textContent = data.message;
-            loadStudents();
-        } else {
-            status.style.color = '#ef4444';
-            status.textContent = data.error;
+            data.interventions.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'intervention-item';
+                div.innerHTML = `
+                    <div class="flex-between">
+                        <strong>${item.type}</strong>
+                        <span style="font-size: 0.8rem; color: var(--text-muted);">${item.date}</span>
+                    </div>
+                    <p style="font-size: 0.9rem; margin-top: 5px;">${item.notes || 'No notes attached.'}</p>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Logged by: ${item.logged_by || 'Unknown'}</div>
+                `;
+                container.appendChild(div);
+            });
         }
-    }
 
-    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
-    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-</script>
+        async function handleSaveIntervention(e) {
+            e.preventDefault();
+            const studentDbId = document.getElementById('interventStudentDbId').value;
+            const date = document.getElementById('interventDate').value;
+            const type = document.getElementById('interventType').value;
+            const notes = document.getElementById('interventNotes').value;
 
+            const res = await fetch('/interventions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ student_db_id: studentDbId, date, type, notes })
+            });
+
+            if (res.ok) {
+                document.getElementById('interventNotes').value = '';
+                loadInterventions(studentDbId);
+                loadStudents();
+            } else {
+                alert("Failed to save intervention.");
+            }
+        }
+
+        // --- ADMIN MODAL & TAB LOGIC ---
+        function openAdminModal() {
+            openModal('adminModal');
+            populateAdminSchoolsDropdown();
+            loadAdminUsersList();
+        }
+
+        async function populateAdminSchoolsDropdown() {
+            const res = await fetch('/schools');
+            const data = await res.json();
+            const select = document.getElementById('newUserSchool');
+            select.innerHTML = '';
+
+            data.schools.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.textContent = s.name;
+                select.appendChild(opt);
+            });
+        }
+
+        async function loadAdminUsersList() {
+            const res = await fetch('/admin/users');
+            const data = await res.json();
+            
+            const container = document.getElementById('userListTableContainer');
+            if (!data.users) return;
+
+            let html = `<table><thead><tr><th>Email</th><th>Role</th><th>School</th></tr></thead><tbody>`;
+            data.users.forEach(u => {
+                html += `<tr><td>${u.email}</td><td>${u.role}</td><td>${u.school_name}</td></tr>`;
+            });
+            html += `</tbody></table>`;
+            container.innerHTML = html;
+        }
+
+        function toggleSchoolAssignment(role) {
+            const group = document.getElementById('userSchoolGroup');
+            if (role === 'admin') {
+                group.classList.add('hidden');
+            } else {
+                group.classList.remove('hidden');
+            }
+        }
+
+        async function handleCreateUser(e) {
+            e.preventDefault();
+            const email = document.getElementById('newUserEmail').value;
+            const password = document.getElementById('newUserPassword').value;
+            const role = document.getElementById('newUserRole').value;
+            const school_id = document.getElementById('newUserSchool').value;
+
+            const res = await fetch('/admin/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password, role, school_id: role === 'admin' ? null : school_id })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+                alert(data.message);
+                document.getElementById('newUserEmail').value = '';
+                document.getElementById('newUserPassword').value = '';
+                loadAdminUsersList();
+            } else {
+                alert(data.error);
+            }
+        }
+
+        async function handleAddSchool(e) {
+            e.preventDefault();
+            const name = document.getElementById('newSchoolName').value;
+            const grade_levels = document.getElementById('newSchoolGrades').value;
+
+            const res = await fetch('/admin/schools', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, grade_levels })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+                alert(data.message);
+                document.getElementById('newSchoolName').value = '';
+                populateAdminSchoolsDropdown();
+                loadSchools();
+            } else {
+                alert(data.error);
+            }
+        }
+
+        function switchAdminTab(tabName) {
+            document.getElementById('usersTab').classList.add('hidden');
+            document.getElementById('schoolsTab').classList.add('hidden');
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+
+            document.getElementById(tabName).classList.remove('hidden');
+            event.target.classList.add('active');
+        }
+
+        // --- GENERAL MODAL HELPERS ---
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+    </script>
 </body>
 </html>
