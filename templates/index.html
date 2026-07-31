@@ -282,9 +282,7 @@
 <body>
 
     <div class="container">
-        <!-- ------------------------------------------------------------- -->
         <!-- AUTHENTICATION VIEW -->
-        <!-- ------------------------------------------------------------- -->
         <div id="authContainer" class="auth-card">
             <h2>Sign In</h2>
             <form id="loginForm" onsubmit="handleLogin(event)">
@@ -300,9 +298,7 @@
             </form>
         </div>
 
-        <!-- ------------------------------------------------------------- -->
         <!-- MAIN DASHBOARD APP CONTAINER -->
-        <!-- ------------------------------------------------------------- -->
         <div id="appContainer" class="hidden">
             <!-- Header -->
             <header class="flex-between">
@@ -390,9 +386,7 @@
         </div>
     </div>
 
-    <!-- ------------------------------------------------------------- -->
     <!-- INTERVENTION MODAL -->
-    <!-- ------------------------------------------------------------- -->
     <div id="interventionModal" class="modal-overlay hidden">
         <div class="modal">
             <div class="modal-header">
@@ -430,9 +424,7 @@
         </div>
     </div>
 
-    <!-- ------------------------------------------------------------- -->
     <!-- ADMIN MODAL -->
-    <!-- ------------------------------------------------------------- -->
     <div id="adminModal" class="modal-overlay hidden">
         <div class="modal">
             <div class="modal-header">
@@ -495,13 +487,10 @@
         </div>
     </div>
 
-    <!-- ------------------------------------------------------------- -->
     <!-- APPLICATION LOGIC (JAVASCRIPT) -->
-    <!-- ------------------------------------------------------------- -->
     <script>
         let currentUser = null;
 
-        // --- AUTHENTICATION & INITIALIZATION ---
         document.addEventListener('DOMContentLoaded', checkAuth);
 
         async function checkAuth() {
@@ -555,7 +544,6 @@
             checkAuth();
         }
 
-        // --- DATA LOADING & DASHBOARD ---
         async function loadSchools() {
             const res = await fetch('/schools');
             const data = await res.json();
@@ -598,11 +586,9 @@
                 return;
             }
 
-            // Update Statistics
             document.getElementById('statTotal').textContent = data.total_students;
             document.getElementById('statChronic').textContent = data.chronic_count;
 
-            // Update Grade Filter Dropdown
             const gradeSelect = document.getElementById('gradeSelect');
             const currentSelectedGrade = gradeSelect.value;
             gradeSelect.innerHTML = '<option value="">All Grades</option>';
@@ -614,7 +600,6 @@
                 gradeSelect.appendChild(opt);
             });
 
-            // Populate Table
             const tbody = document.getElementById('studentTableBody');
             tbody.innerHTML = '';
 
@@ -643,7 +628,6 @@
             });
         }
 
-        // --- FILE UPLOAD ---
         async function handleFileUpload(e) {
             e.preventDefault();
             const schoolId = document.getElementById('schoolSelect').value;
@@ -673,7 +657,6 @@
             }
         }
 
-        // --- INTERVENTIONS ---
         async function openInterventionModal(studentDbId, studentName) {
             document.getElementById('interventStudentDbId').value = studentDbId;
             document.getElementById('interventionStudentName').textContent = `Interventions: ${studentName}`;
@@ -732,7 +715,6 @@
             }
         }
 
-        // --- ADMIN MODAL & TAB LOGIC ---
         function openAdminModal() {
             openModal('adminModal');
             populateAdminSchoolsDropdown();
@@ -873,7 +855,6 @@
             if (evt) evt.target.classList.add('active');
         }
 
-        // --- GENERAL MODAL HELPERS ---
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
         function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
     </script>
