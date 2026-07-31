@@ -276,7 +276,9 @@ def upload_file():
         if filename.endswith(".csv"):
             df = pd.read_csv(file)
         elif filename.endswith((".xls", ".xlsx")):
-            df = pd.read_excel(file)
+            # FIX: Reads all tabs/sheets if workbook has multiple sections
+            all_sheets = pd.read_excel(file, sheet_name=None)
+            df = pd.concat(all_sheets.values(), ignore_ignore_index=True) if hasattr(pd, "concat") else pd.read_excel(file)
         else:
             return jsonify({"error": "Unsupported file format. Please upload a .csv or .xlsx file."}), 400
 
@@ -315,11 +317,20 @@ def upload_file():
                 "error": f"Missing required column(s): {', '.join(missing_cols)}."
             }), 400
 
+        # FIX: Drop empty or non-student title rows
+        df = df.dropna(subset=[id_col, name_col])
+
         # Refresh dataset for the designated school
         Student.query.filter_by(school_id=school_id).delete()
 
         records = []
         for _, row in df.iterrows():
+            id_str = str(row[id_col]).strip()
+            name_str = str(row[name_col]).strip()
+
+            if not id_str or id_str.lower() == 'nan' or not name_str or name_str.lower() == 'nan':
+                continue
+
             absent_val = safe_float_convert(row[absent_col], default=0.0)
             
             # Extract total membership days
@@ -330,12 +341,16 @@ def upload_file():
             min_absent_val = safe_float_convert(row[min_absent_col] if min_absent_col else None, default=0.0)
             min_total_val = safe_float_convert(row[min_total_col] if min_total_col else None, default=0.0)
 
+            # FIX: Auto-calculate missing minute totals from enrolled days (~360 mins/day standard)
+            if min_total_val <= 0 and total_val > 0:
+                min_total_val = total_val * 360.0
+
             grade_val = str(row[grade_col]).strip() if grade_col and pd.notnull(row[grade_col]) else "N/A"
 
             student = Student(
                 school_id=school.id,
-                student_id_str=str(row[id_col]).strip(),
-                name=str(row[name_col]).strip(),
+                student_id_str=id_str,
+                name=name_str,
                 grade=grade_val,
                 days_absent=absent_val,
                 total_days=total_val,
@@ -394,9 +409,13 @@ def get_students():
     filtered = []
 
     for s in students:
-        day_rate = (s.days_absent / s.total_days) * 100.0 if s.total_days > 0 else 0.0
-        min_rate = (s.minutes_absent / s.total_minutes) * 100.0 if s.total_minutes > 0 else 0.0
+        # Day Absence Calculation
+        day_rate = (s.days_absent / s.total_days * 100.0) if (s.total_days and s.total_days > 0) else 0.0
 
+        # Minute Absence Calculation
+        min_rate = (s.minutes_absent / s.total_minutes * 100.0) if (s.total_minutes and s.total_minutes > 0) else 0.0
+
+        # Dual Threshold Check: Either Days >= 10% OR Minutes >= 10%
         is_chronic_days = day_rate >= 10.0
         is_chronic_mins = min_rate >= 10.0
         is_chronic = is_chronic_days or is_chronic_mins
