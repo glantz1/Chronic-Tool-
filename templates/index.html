@@ -25,7 +25,7 @@
         }
 
         .container {
-            max-width: 1100px;
+            max-width: 1150px;
             margin: 0 auto;
         }
 
@@ -38,6 +38,12 @@
             padding-bottom: 12px;
         }
 
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
         .card {
             background: var(--card-bg);
             border: 1px solid var(--border);
@@ -47,11 +53,10 @@
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
 
-        /* Dropzone Styling */
         .dropzone {
             border: 2px dashed var(--primary);
             border-radius: 8px;
-            padding: 40px;
+            padding: 30px;
             text-align: center;
             cursor: pointer;
             background: #eff6ff;
@@ -61,7 +66,6 @@
         .dropzone.dragover {
             background: #dbeafe;
             border-color: var(--primary-hover);
-            transform: scale(1.01);
         }
 
         .dropzone p {
@@ -72,12 +76,13 @@
 
         .controls {
             display: flex;
-            gap: 16px;
+            gap: 12px;
             margin-bottom: 16px;
             align-items: center;
+            flex-wrap: wrap;
         }
 
-        select, input, button {
+        select, input, button, textarea {
             padding: 10px 14px;
             border: 1px solid var(--border);
             border-radius: 6px;
@@ -96,7 +101,25 @@
             background-color: var(--primary-hover);
         }
 
-        /* Stats grid */
+        .btn-sm {
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        .btn-outline:hover {
+            background: #f1f5f9;
+        }
+
+        .btn-danger {
+            background-color: var(--danger);
+        }
+
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -124,7 +147,6 @@
             font-weight: bold;
         }
 
-        /* Table Styling */
         table {
             width: 100%;
             border-collapse: collapse;
@@ -154,6 +176,40 @@
             margin-top: 10px;
             font-weight: 500;
         }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            box-sizing: border-box;
+        }
     </style>
 </head>
 <body>
@@ -161,20 +217,27 @@
 <div class="container">
     <header>
         <h2>Chronic Absenteeism Tracking Tool</h2>
-        <div id="school-select-container">
-            <label for="schoolSelect"><strong>School:</strong> </label>
-            <select id="schoolSelect" onchange="loadStudents()">
-                <!-- Populated via API -->
-            </select>
+        <div class="header-actions">
+            <div>
+                <label for="schoolSelect"><strong>School:</strong> </label>
+                <select id="schoolSelect" onchange="loadStudents()">
+                    <!-- Populated via API -->
+                </select>
+            </div>
+            
+            <!-- Auth User Container -->
+            <div id="authSection">
+                <button class="btn-outline" onclick="openModal('loginModal')">Log In</button>
+            </div>
         </div>
     </header>
 
     <!-- Upload Section -->
     <div class="card">
-        <h3>Upload Attendance CSV</h3>
+        <h3>Upload Attendance CSV / Excel</h3>
         <div class="dropzone" id="dropzone">
-            <p>📁 Drag and drop your attendance CSV file here, or click to select</p>
-            <input type="file" id="fileInput" accept=".csv" style="display: none;">
+            <p>📁 Drag and drop your attendance file here, or click to select</p>
+            <input type="file" id="fileInput" accept=".csv, .xlsx, .xls" style="display: none;">
         </div>
         <div id="uploadStatus" class="status-msg"></div>
     </div>
@@ -195,9 +258,24 @@
         </div>
     </div>
 
-    <!-- Student List -->
+    <!-- Student List & Filtering -->
     <div class="card">
         <h3>Student Attendance Roster</h3>
+        
+        <!-- Filter Bar -->
+        <div class="controls">
+            <input type="text" id="searchInput" placeholder="Search by name or ID..." onkeyup="loadStudents()">
+            
+            <select id="gradeFilter" onchange="loadStudents()">
+                <option value="">All Grades</option>
+            </select>
+
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="chronicOnly" onchange="loadStudents()"> 
+                Show Chronically Absent Only
+            </label>
+        </div>
+
         <table>
             <thead>
                 <tr>
@@ -208,12 +286,68 @@
                     <th>Total Days</th>
                     <th>Absence Rate</th>
                     <th>Status</th>
+                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="studentTableBody">
-                <tr><td colspan="7" style="text-align: center; color: #64748b;">No data loaded. Upload a CSV to view roster.</td></tr>
+                <tr><td colspan="8" style="text-align: center; color: #64748b;">No data loaded. Upload a file to view roster.</td></tr>
             </tbody>
         </table>
+    </div>
+</div>
+
+<!-- Log In Modal -->
+<div id="loginModal" class="modal">
+    <div class="modal-content">
+        <h3>User Login</h3>
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="loginUsername">
+        </div>
+        <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="loginPassword">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn-outline" onclick="closeModal('loginModal')">Cancel</button>
+            <button onclick="handleLogin()">Log In</button>
+        </div>
+    </div>
+</div>
+
+<!-- Log Intervention Modal -->
+<div id="interventionModal" class="modal">
+    <div class="modal-content">
+        <h3 id="modalStudentName">Log Action / Intervention</h3>
+        <input type="hidden" id="modalStudentDbId">
+        
+        <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="intDate">
+        </div>
+        <div class="form-group">
+            <label>Action Type</label>
+            <select id="intType">
+                <option value="Parent Contact">Parent Contact (Phone/Email)</option>
+                <option value="Attendance Contract">Attendance Contract</option>
+                <option value="Home Visit">Home Visit</option>
+                <option value="Counseling / SST">Counseling / SST Meeting</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Notes</label>
+            <textarea id="intNotes" rows="3" placeholder="Enter notes..."></textarea>
+        </div>
+
+        <div style="margin-top: 15px;">
+            <h4>Previous Logged Actions:</h4>
+            <div id="previousInterventions" style="max-height: 150px; overflow-y: auto; font-size: 13px;"></div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px;">
+            <button class="btn-outline" onclick="closeModal('interventionModal')">Cancel</button>
+            <button onclick="saveIntervention()">Save Action</button>
+        </div>
     </div>
 </div>
 
@@ -222,11 +356,52 @@
     const fileInput = document.getElementById('fileInput');
     const uploadStatus = document.getElementById('uploadStatus');
 
-    // Load available schools on start
     document.addEventListener('DOMContentLoaded', () => {
+        checkUserSession();
         fetchSchools();
+        document.getElementById('intDate').valueAsDate = new Date();
     });
 
+    // -------------------------------------------------------------
+    // AUTHENTICATION HANDLERS
+    // -------------------------------------------------------------
+    async function checkUserSession() {
+        const res = await fetch('/me');
+        const data = await res.json();
+        const authDiv = document.getElementById('authSection');
+        if (data.logged_in) {
+            authDiv.innerHTML = `<span>👤 <strong>${data.user.username}</strong></span> <button class="btn-outline btn-sm" onclick="handleLogout()">Logout</button>`;
+        } else {
+            authDiv.innerHTML = `<button class="btn-outline" onclick="openModal('loginModal')">Log In</button>`;
+        }
+    }
+
+    async function handleLogin() {
+        const username = document.getElementById('loginUsername').value;
+        const password = document.getElementById('loginPassword').value;
+        
+        const res = await fetch('/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        
+        if (res.ok) {
+            closeModal('loginModal');
+            checkUserSession();
+        } else {
+            alert('Invalid credentials');
+        }
+    }
+
+    async function handleLogout() {
+        await fetch('/logout', { method: 'POST' });
+        checkUserSession();
+    }
+
+    // -------------------------------------------------------------
+    // SCHOOLS & ROSTER LOADING WITH FILTERS
+    // -------------------------------------------------------------
     async function fetchSchools() {
         try {
             const res = await fetch('/schools');
@@ -249,76 +424,18 @@
         }
     }
 
-    // Drag and Drop Event Listeners
-    dropzone.addEventListener('click', () => fileInput.click());
-
-    dropzone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropzone.classList.add('dragover');
-    });
-
-    dropzone.addEventListener('dragleave', () => {
-        dropzone.classList.remove('dragover');
-    });
-
-    dropzone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropzone.classList.remove('dragover');
-        if (e.dataTransfer.files.length > 0) {
-            handleFileUpload(e.dataTransfer.files[0]);
-        }
-    });
-
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            handleFileUpload(e.target.files[0]);
-        }
-    });
-
-    // Handle CSV File Upload
-    async function handleFileUpload(file) {
-        const schoolId = document.getElementById('schoolSelect').value;
-        if (!schoolId) {
-            alert('Please select or add a school first.');
-            return;
-        }
-
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('school_id', schoolId);
-
-        uploadStatus.style.color = '#2563eb';
-        uploadStatus.textContent = `Uploading and processing "${file.name}"...`;
-
-        try {
-            const res = await fetch('/upload', {
-                method: 'POST',
-                body: formData
-            });
-
-            const data = await res.json();
-
-            if (res.ok) {
-                uploadStatus.style.color = '#10b981';
-                uploadStatus.textContent = `Success: Processed ${data.total_students} students (${data.chronic_count} chronic cases).`;
-                loadStudents();
-            } else {
-                uploadStatus.style.color = '#ef4444';
-                uploadStatus.textContent = `Error: ${data.error}`;
-            }
-        } catch (err) {
-            uploadStatus.style.color = '#ef4444';
-            uploadStatus.textContent = `Upload failed: ${err.message}`;
-        }
-    }
-
-    // Fetch and render student roster + metrics
     async function loadStudents() {
         const schoolId = document.getElementById('schoolSelect').value;
         if (!schoolId) return;
 
+        const grade = document.getElementById('gradeFilter').value;
+        const chronic = document.getElementById('chronicOnly').checked;
+        const search = document.getElementById('searchInput').value;
+
+        const url = `/students?school_id=${schoolId}&grade=${encodeURIComponent(grade)}&chronic=${chronic}&search=${encodeURIComponent(search)}`;
+
         try {
-            const res = await fetch(`/students?school_id=${schoolId}`);
+            const res = await fetch(url);
             const data = await res.json();
 
             document.getElementById('statTotal').textContent = data.total_students;
@@ -326,11 +443,22 @@
             const rate = data.total_students > 0 ? ((data.chronic_count / data.total_students) * 100).toFixed(1) : 0;
             document.getElementById('statRate').textContent = `${rate}%`;
 
+            // Populate Grade Filter options dynamically if empty
+            const gradeSelect = document.getElementById('gradeFilter');
+            if (gradeSelect.options.length <= 1 && data.available_grades) {
+                data.available_grades.forEach(g => {
+                    const opt = document.createElement('option');
+                    opt.value = g;
+                    opt.textContent = `Grade ${g}`;
+                    gradeSelect.appendChild(opt);
+                });
+            }
+
             const tbody = document.getElementById('studentTableBody');
             tbody.innerHTML = '';
 
             if (data.students.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">No students found for this school. Upload a CSV to populate.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #64748b;">No matching student records found.</td></tr>';
                 return;
             }
 
@@ -342,8 +470,13 @@
                     <td>${s.grade}</td>
                     <td>${s.days_absent}</td>
                     <td>${s.total_days}</td>
-                    <td>${s.absence_rate_pct}</td>
+                    <td>${s.absence_rate_pct}%</td>
                     <td>${s.is_chronic ? '<span class="badge-chronic">CHRONIC</span>' : '<span style="color:#10b981;">Normal</span>'}</td>
+                    <td>
+                        <button class="btn-sm btn-outline" onclick="openInterventionModal(${s.db_id}, '${s.student_name.replace(/'/g, "\\'")}')">
+                            📝 Actions (${s.interventions_count})
+                        </button>
+                    </td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -351,6 +484,105 @@
             console.error("Failed to load student roster:", err);
         }
     }
+
+    // -------------------------------------------------------------
+    // INTERVENTIONS HANDLERS
+    // -------------------------------------------------------------
+    async function openInterventionModal(dbId, studentName) {
+        document.getElementById('modalStudentDbId').value = dbId;
+        document.getElementById('modalStudentName').textContent = `Actions for ${studentName}`;
+        openModal('interventionModal');
+        loadStudentInterventions(dbId);
+    }
+
+    async function loadStudentInterventions(dbId) {
+        const res = await fetch(`/interventions?student_db_id=${dbId}`);
+        const data = await res.json();
+        const container = document.getElementById('previousInterventions');
+        container.innerHTML = '';
+
+        if (data.interventions.length === 0) {
+            container.innerHTML = '<em>No interventions logged yet.</em>';
+            return;
+        }
+
+        data.interventions.forEach(i => {
+            const div = document.createElement('div');
+            div.style.padding = "6px 0";
+            div.style.borderBottom = "1px solid #e2e8f0";
+            div.innerHTML = `<strong>${i.date} - ${i.type}</strong> (${i.logged_by || 'Staff'})<br><span>${i.notes || 'No notes'}</span>`;
+            container.appendChild(div);
+        });
+    }
+
+    async function saveIntervention() {
+        const dbId = document.getElementById('modalStudentDbId').value;
+        const date = document.getElementById('intDate').value;
+        const type = document.getElementById('intType').value;
+        const notes = document.getElementById('intNotes').value;
+
+        const res = await fetch('/interventions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ student_db_id: dbId, date, type, notes })
+        });
+
+        if (res.ok) {
+            document.getElementById('intNotes').value = '';
+            loadStudentInterventions(dbId);
+            loadStudents();
+        } else {
+            alert('Failed to save intervention');
+        }
+    }
+
+    // -------------------------------------------------------------
+    // DROPZONE & FILE UPLOAD
+    // -------------------------------------------------------------
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) handleFileUpload(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) handleFileUpload(e.target.files[0]);
+    });
+
+    async function handleFileUpload(file) {
+        const schoolId = document.getElementById('schoolSelect').value;
+        if (!schoolId) { alert('Please select a school first.'); return; }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('school_id', schoolId);
+
+        uploadStatus.style.color = '#2563eb';
+        uploadStatus.textContent = `Processing "${file.name}"...`;
+
+        try {
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if (res.ok) {
+                uploadStatus.style.color = '#10b981';
+                uploadStatus.textContent = `Success: ${data.message}`;
+                loadStudents();
+            } else {
+                uploadStatus.style.color = '#ef4444';
+                uploadStatus.textContent = `Error: ${data.error}`;
+            }
+        } catch (err) {
+            uploadStatus.style.color = '#ef4444';
+            uploadStatus.textContent = `Upload failed: ${err.message}`;
+        }
+    }
+
+    // Modal Helpers
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 </script>
 
 </body>
