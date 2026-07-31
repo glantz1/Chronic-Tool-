@@ -1,7 +1,7 @@
 import os
 import io
 import pandas as pd
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import insert
@@ -12,6 +12,7 @@ from jinja2 import FileSystemLoader
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'chronic-absenteeism-secret-key-2026')
 CORS(app)
 
 # Explicitly register template paths so Jinja always finds index.html
@@ -81,18 +82,76 @@ class Intervention(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_db_id = db.Column(db.Integer, db.ForeignKey('students.id'), nullable=False)
     date = db.Column(db.String(20), nullable=False)
-    type = db.Column(db.String(50), nullable=False) # e.g., 'Parent Call', 'Meeting', 'Letter Sent'
+    type = db.Column(db.String(50), nullable=False) # e.g., 'Parent Contact', 'Attendance Contract', 'Home Visit'
     notes = db.Column(db.Text, nullable=True)
+    logged_by = db.Column(db.String(80), nullable=True)
 
 # -----------------------------------------------------------------
-# ROUTES & CONTROLLERS
+# MAIN PAGE & AUTHENTICATION ENDPOINTS (LOGIN / LOGOUT / REGISTER)
 # -----------------------------------------------------------------
 
 @app.route('/')
 def home():
     return render_template('index.html')
 
-# --- SCHOOL ENDPOINTS ---
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json() or {}
+    username = data.get('username')
+    password = data.get('password')
+    role = data.get('role', 'staff')
+
+    if not username or not password:
+        return jsonify({'error': 'Username and password required'}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({'error': 'Username already exists'}), 400
+
+    user = User(username=username, role=role)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+
+    return jsonify({'message': 'User registered successfully!'}), 201
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json() or {}
+    username = data.get('username')
+    password = data.get('password')
+
+    user = User.query.filter_by(username=username).first()
+    if user and user.check_password(password):
+        session['user_id'] = user.id
+        session['username'] = user.username
+        session['role'] = user.role
+        return jsonify({
+            'message': 'Login successful!',
+            'user': {'id': user.id, 'username': user.username, 'role': user.role}
+        }), 200
+
+    return jsonify({'error': 'Invalid username or password'}), 401
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return jsonify({'message': 'Logged out successfully!'}), 200
+
+@app.route('/me', methods=['GET'])
+def current_user():
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({'logged_in': False}), 200
+    user = User.query.get(user_id)
+    return jsonify({
+        'logged_in': True,
+        'user': {'id': user.id, 'username': user.username, 'role': user.role}
+    })
+
+# -----------------------------------------------------------------
+# SCHOOL ENDPOINTS
+# -----------------------------------------------------------------
+
 @app.route('/schools', methods=['GET', 'POST'])
 def handle_schools():
     if request.method == 'POST':
@@ -109,7 +168,10 @@ def handle_schools():
     schools = School.query.all()
     return jsonify({'schools': [{'id': s.id, 'name': s.name} for s in schools]})
 
-# --- UPLOAD & FILE PROCESSING ---
+# -----------------------------------------------------------------
+# FILE UPLOAD & PARSING WITH UPSERT
+# -----------------------------------------------------------------
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
@@ -125,20 +187,19 @@ def upload_file():
         return jsonify({'error': 'No file selected'}), 400
 
     try:
-        # Read uploaded file stream
         if file.filename.endswith('.csv'):
             df = pd.read_csv(io.StringIO(file.stream.read().decode('utf-8')))
         else:
             df = pd.read_excel(file)
 
-        # Dynamic column detection (handles varying export column titles)
+        # Dynamic column detection
         id_col = next((c for c in df.columns if 'student' in c.lower() and 'id' in c.lower()), df.columns[0])
         name_col = next((c for c in df.columns if 'name' in c.lower()), df.columns[1] if len(df.columns) > 1 else df.columns[0])
         absent_col = next((c for c in df.columns if 'absent' in c.lower() or 'unexcused' in c.lower()), None)
         total_col = next((c for c in df.columns if 'total' in c.lower() or 'enrolled' in c.lower() or 'membership' in c.lower()), None)
         grade_col = next((c for c in df.columns if 'grade' in c.lower()), None)
 
-        # 1. CLEAN & FILTER HEADER METADATA (Drops "Attendance Date Range: ...", empty rows, etc.)
+        # 1. CLEAN HEADER METADATA (Drops "Attendance Date Range:", titles, empty rows)
         df[id_col] = df[id_col].astype(str).str.strip()
         df = df[
             df[id_col].notna() & 
@@ -146,7 +207,7 @@ def upload_file():
             ~df[id_col].str.contains('Attendance Date Range|Report|Total|Date', case=False, na=False)
         ]
 
-        # 2. BULK UPSERT TO PREVENT DUPLICATE KEY ERRORS
+        # 2. BULK UPSERT
         processed_count = 0
         chronic_count = 0
 
@@ -169,7 +230,7 @@ def upload_file():
                 school_id=school_id
             )
 
-            # On conflict with unique constraint (student_id + school_id), update stats
+            # On duplicate (student_id + school_id), update record stats
             stmt = stmt.on_conflict_do_update(
                 constraint='unique_student_per_school',
                 set_={
@@ -194,29 +255,51 @@ def upload_file():
         db.session.rollback()
         return jsonify({'error': f'Failed to process file: {str(e)}'}), 500
 
-# --- STUDENT ROSTER & DETAILS ---
+# -----------------------------------------------------------------
+# STUDENT ROSTER & MULTI-CRITERIA FILTERING
+# -----------------------------------------------------------------
+
 @app.route('/students', methods=['GET'])
 def get_students():
     school_id = request.args.get('school_id', type=int)
+    grade = request.args.get('grade', type=str)
     filter_chronic = request.args.get('chronic', type=str) # 'true' or 'false'
+    search_query = request.args.get('search', type=str)
 
     query = Student.query
+
+    # Apply Database Filters
     if school_id:
         query = query.filter_by(school_id=school_id)
 
+    if grade:
+        query = query.filter_by(grade=grade)
+
+    if search_query:
+        search_pattern = f"%{search_query}%"
+        query = query.filter(
+            (Student.student_name.ilike(search_pattern)) | 
+            (Student.student_id.ilike(search_pattern))
+        )
+
     students = query.all()
 
-    # Dynamic metrics computation
+    # Dynamic Computation and Chronic Filtering
     student_list = []
-    chronic_count = 0
+    total_chronic = 0
+    unique_grades = sorted(list(set(s.grade for s in Student.query.all() if s.grade)))
 
     for s in students:
         is_chr = s.is_chronic
         if is_chr:
-            chronic_count += 1
-            
+            total_chronic += 1
+
+        # Apply Chronic Filter if requested
         if filter_chronic == 'true' and not is_chr:
             continue
+
+        # Get total interventions logged for student
+        int_count = Intervention.query.filter_by(student_db_id=s.id).count()
 
         student_list.append({
             'db_id': s.id,
@@ -225,19 +308,24 @@ def get_students():
             'grade': s.grade,
             'days_absent': s.days_absent,
             'total_days': s.total_days,
-            'absence_rate_pct': f"{s.absence_rate}%",
+            'absence_rate_pct': s.absence_rate,
             'is_chronic': is_chr,
-            'school_id': s.school_id
+            'school_id': s.school_id,
+            'interventions_count': int_count
         })
 
     return jsonify({
         'total_students': len(students),
-        'chronic_count': chronic_count,
+        'chronic_count': total_chronic,
+        'available_grades': unique_grades,
         'students': student_list
     })
 
-# --- INTERVENTIONS ENDPOINTS ---
-@app.route('/interventions', methods=['GET', 'POST'])
+# -----------------------------------------------------------------
+# INTERVENTIONS MANAGEMENT (LOG & RETRIEVE & DELETE)
+# -----------------------------------------------------------------
+
+@app.route('/interventions', methods=['GET', 'POST', 'DELETE'])
 def handle_interventions():
     if request.method == 'POST':
         data = request.get_json() or {}
@@ -245,6 +333,7 @@ def handle_interventions():
         date_str = data.get('date')
         int_type = data.get('type')
         notes = data.get('notes', '')
+        logged_by = session.get('username', data.get('logged_by', 'Staff'))
 
         if not student_db_id or not date_str or not int_type:
             return jsonify({'error': 'Missing required intervention fields'}), 400
@@ -253,17 +342,32 @@ def handle_interventions():
             student_db_id=student_db_id,
             date=date_str,
             type=int_type,
-            notes=notes
+            notes=notes,
+            logged_by=logged_by
         )
         db.session.add(intervention)
         db.session.commit()
-        return jsonify({'message': 'Intervention logged successfully!'}), 201
+        return jsonify({'message': 'Intervention logged successfully!', 'id': intervention.id}), 201
 
+    elif request.method == 'DELETE':
+        int_id = request.args.get('id', type=int)
+        if not int_id:
+            return jsonify({'error': 'Intervention ID required'}), 400
+
+        intervention = Intervention.query.get(int_id)
+        if not intervention:
+            return jsonify({'error': 'Intervention not found'}), 404
+
+        db.session.delete(intervention)
+        db.session.commit()
+        return jsonify({'message': 'Intervention deleted successfully!'}), 200
+
+    # GET Request: Filter by student_db_id if provided
     student_db_id = request.args.get('student_db_id', type=int)
     if student_db_id:
-        interventions = Intervention.query.filter_by(student_db_id=student_db_id).all()
+        interventions = Intervention.query.filter_by(student_db_id=student_db_id).order_by(Intervention.id.desc()).all()
     else:
-        interventions = Intervention.query.all()
+        interventions = Intervention.query.order_by(Intervention.id.desc()).all()
 
     return jsonify({
         'interventions': [{
@@ -271,7 +375,8 @@ def handle_interventions():
             'student_db_id': i.student_db_id,
             'date': i.date,
             'type': i.type,
-            'notes': i.notes
+            'notes': i.notes,
+            'logged_by': i.logged_by
         } for i in interventions]
     })
 
