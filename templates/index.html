@@ -29,6 +29,54 @@
             margin: 0 auto;
         }
 
+        /* Authentication Screen Styles */
+        #auth-screen {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 80vh;
+        }
+
+        .auth-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 32px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .auth-card h2 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            text-align: center;
+            color: var(--primary);
+        }
+
+        .tab-buttons {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 10px;
+            background: none;
+            border: none;
+            color: #64748b;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+        }
+
+        .tab-btn.active {
+            color: var(--primary);
+            border-color: var(--primary);
+        }
+
         header {
             display: flex;
             justify-content: space-between;
@@ -89,6 +137,22 @@
             font-size: 14px;
         }
 
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            box-sizing: border-box;
+        }
+
         button {
             background-color: var(--primary);
             color: white;
@@ -99,6 +163,11 @@
 
         button:hover {
             background-color: var(--primary-hover);
+        }
+
+        .btn-full {
+            width: 100%;
+            padding: 12px;
         }
 
         .btn-sm {
@@ -114,10 +183,6 @@
 
         .btn-outline:hover {
             background: #f1f5f9;
-        }
-
-        .btn-danger {
-            background-color: var(--danger);
         }
 
         .stats-grid {
@@ -195,122 +260,138 @@
             width: 100%;
             max-width: 500px;
         }
-
-        .form-group {
-            margin-bottom: 16px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 6px;
-            font-weight: 600;
-        }
-
-        .form-group input, .form-group select, .form-group textarea {
-            width: 100%;
-            box-sizing: border-box;
-        }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <header>
-        <h2>Chronic Absenteeism Tracking Tool</h2>
-        <div class="header-actions">
-            <div>
-                <label for="schoolSelect"><strong>School:</strong> </label>
-                <select id="schoolSelect" onchange="loadStudents()">
-                    <!-- Populated via API -->
+
+    <!-- 1. AUTHENTICATION GATEWAY (Shown by default) -->
+    <div id="auth-screen">
+        <div class="auth-card">
+            <h2>Absenteeism Tracker</h2>
+            
+            <div class="tab-buttons">
+                <button class="tab-btn active" id="tabLogin" onclick="switchAuthTab('login')">Log In</button>
+                <button class="tab-btn" id="tabRegister" onclick="switchAuthTab('register')">Register</button>
+            </div>
+
+            <!-- Login Form -->
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label for="loginUsername">Username</label>
+                    <input type="text" id="loginUsername" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <input type="password" id="loginPassword" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn-full">Log In</button>
+            </form>
+
+            <!-- Register Form (Hidden by default) -->
+            <form id="registerForm" onsubmit="handleRegister(event)" style="display: none;">
+                <div class="form-group">
+                    <label for="regUsername">Choose Username</label>
+                    <input type="text" id="regUsername" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="regPassword">Choose Password</label>
+                    <input type="password" id="regPassword" required autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label for="regRole">Role</label>
+                    <select id="regRole">
+                        <option value="staff">Staff</option>
+                        <option value="admin">Administrator</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn-full">Create Account</button>
+            </form>
+
+            <div id="authError" class="status-msg" style="color: var(--danger); text-align: center;"></div>
+        </div>
+    </div>
+
+    <!-- 2. MAIN DASHBOARD (Hidden until authenticated) -->
+    <div id="dashboard-screen" style="display: none;">
+        <header>
+            <h2>Chronic Absenteeism Tracking Tool</h2>
+            <div class="header-actions">
+                <div>
+                    <label for="schoolSelect"><strong>School:</strong> </label>
+                    <select id="schoolSelect" onchange="loadStudents()">
+                        <!-- Populated via API -->
+                    </select>
+                </div>
+                
+                <div id="userDisplay" style="display: flex; align-items: center; gap: 10px;">
+                    <span id="welcomeUser"></span>
+                    <button class="btn-outline btn-sm" onclick="handleLogout()">Log Out</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Upload Section -->
+        <div class="card">
+            <h3>Upload Attendance CSV / Excel</h3>
+            <div class="dropzone" id="dropzone">
+                <p>📁 Drag and drop your attendance file here, or click to select</p>
+                <input type="file" id="fileInput" accept=".csv, .xlsx, .xls" style="display: none;">
+            </div>
+            <div id="uploadStatus" class="status-msg"></div>
+        </div>
+
+        <!-- Metrics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Students</h3>
+                <p id="statTotal">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Chronically Absent</h3>
+                <p id="statChronic" style="color: var(--danger);">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Chronic Rate</h3>
+                <p id="statRate">0%</p>
+            </div>
+        </div>
+
+        <!-- Student List & Filtering -->
+        <div class="card">
+            <h3>Student Attendance Roster</h3>
+            
+            <div class="controls">
+                <input type="text" id="searchInput" placeholder="Search by name or ID..." onkeyup="loadStudents()">
+                
+                <select id="gradeFilter" onchange="loadStudents()">
+                    <option value="">All Grades</option>
                 </select>
+
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="chronicOnly" onchange="loadStudents()"> 
+                    Show Chronically Absent Only
+                </label>
             </div>
-            
-            <!-- Auth User Container -->
-            <div id="authSection">
-                <button class="btn-outline" onclick="openModal('loginModal')">Log In</button>
-            </div>
-        </div>
-    </header>
 
-    <!-- Upload Section -->
-    <div class="card">
-        <h3>Upload Attendance CSV / Excel</h3>
-        <div class="dropzone" id="dropzone">
-            <p>📁 Drag and drop your attendance file here, or click to select</p>
-            <input type="file" id="fileInput" accept=".csv, .xlsx, .xls" style="display: none;">
-        </div>
-        <div id="uploadStatus" class="status-msg"></div>
-    </div>
-
-    <!-- Metrics -->
-    <div class="stats-grid">
-        <div class="stat-card">
-            <h3>Total Students</h3>
-            <p id="statTotal">0</p>
-        </div>
-        <div class="stat-card">
-            <h3>Chronically Absent</h3>
-            <p id="statChronic" style="color: var(--danger);">0</p>
-        </div>
-        <div class="stat-card">
-            <h3>Chronic Rate</h3>
-            <p id="statRate">0%</p>
-        </div>
-    </div>
-
-    <!-- Student List & Filtering -->
-    <div class="card">
-        <h3>Student Attendance Roster</h3>
-        
-        <!-- Filter Bar -->
-        <div class="controls">
-            <input type="text" id="searchInput" placeholder="Search by name or ID..." onkeyup="loadStudents()">
-            
-            <select id="gradeFilter" onchange="loadStudents()">
-                <option value="">All Grades</option>
-            </select>
-
-            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                <input type="checkbox" id="chronicOnly" onchange="loadStudents()"> 
-                Show Chronically Absent Only
-            </label>
-        </div>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>Student ID</th>
-                    <th>Name</th>
-                    <th>Grade</th>
-                    <th>Absences</th>
-                    <th>Total Days</th>
-                    <th>Absence Rate</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="studentTableBody">
-                <tr><td colspan="8" style="text-align: center; color: #64748b;">No data loaded. Upload a file to view roster.</td></tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- Log In Modal -->
-<div id="loginModal" class="modal">
-    <div class="modal-content">
-        <h3>User Login</h3>
-        <div class="form-group">
-            <label>Username</label>
-            <input type="text" id="loginUsername">
-        </div>
-        <div class="form-group">
-            <label>Password</label>
-            <input type="password" id="loginPassword">
-        </div>
-        <div style="display: flex; justify-content: flex-end; gap: 8px;">
-            <button class="btn-outline" onclick="closeModal('loginModal')">Cancel</button>
-            <button onclick="handleLogin()">Log In</button>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Student ID</th>
+                        <th>Name</th>
+                        <th>Grade</th>
+                        <th>Absences</th>
+                        <th>Total Days</th>
+                        <th>Absence Rate</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="studentTableBody">
+                    <tr><td colspan="8" style="text-align: center; color: #64748b;">No data loaded. Upload a file to view roster.</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -322,11 +403,11 @@
         <input type="hidden" id="modalStudentDbId">
         
         <div class="form-group">
-            <label>Date</label>
+            <label for="intDate">Date</label>
             <input type="date" id="intDate">
         </div>
         <div class="form-group">
-            <label>Action Type</label>
+            <label for="intType">Action Type</label>
             <select id="intType">
                 <option value="Parent Contact">Parent Contact (Phone/Email)</option>
                 <option value="Attendance Contract">Attendance Contract</option>
@@ -335,8 +416,8 @@
             </select>
         </div>
         <div class="form-group">
-            <label>Notes</label>
-            <textarea id="intNotes" rows="3" placeholder="Enter notes..."></textarea>
+            <label for="intNotes">Notes</label>
+            <textarea id="intNotes" rows="3" placeholder="Enter intervention notes..."></textarea>
         </div>
 
         <div style="margin-top: 15px;">
@@ -345,62 +426,131 @@
         </div>
 
         <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px;">
-            <button class="btn-outline" onclick="closeModal('interventionModal')">Cancel</button>
-            <button onclick="saveIntervention()">Save Action</button>
+            <button type="button" class="btn-outline" onclick="closeModal('interventionModal')">Cancel</button>
+            <button type="button" onclick="saveIntervention()">Save Action</button>
         </div>
     </div>
 </div>
 
 <script>
+    const authScreen = document.getElementById('auth-screen');
+    const dashboardScreen = document.getElementById('dashboard-screen');
+    const authError = document.getElementById('authError');
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
     const uploadStatus = document.getElementById('uploadStatus');
 
     document.addEventListener('DOMContentLoaded', () => {
         checkUserSession();
-        fetchSchools();
         document.getElementById('intDate').valueAsDate = new Date();
     });
 
     // -------------------------------------------------------------
-    // AUTHENTICATION HANDLERS
+    // AUTHENTICATION FLOW
     // -------------------------------------------------------------
-    async function checkUserSession() {
-        const res = await fetch('/me');
-        const data = await res.json();
-        const authDiv = document.getElementById('authSection');
-        if (data.logged_in) {
-            authDiv.innerHTML = `<span>👤 <strong>${data.user.username}</strong></span> <button class="btn-outline btn-sm" onclick="handleLogout()">Logout</button>`;
+    function switchAuthTab(tab) {
+        authError.textContent = '';
+        if (tab === 'login') {
+            document.getElementById('loginForm').style.display = 'block';
+            document.getElementById('registerForm').style.display = 'none';
+            document.getElementById('tabLogin').classList.add('active');
+            document.getElementById('tabRegister').classList.remove('active');
         } else {
-            authDiv.innerHTML = `<button class="btn-outline" onclick="openModal('loginModal')">Log In</button>`;
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('registerForm').style.display = 'block';
+            document.getElementById('tabRegister').classList.add('active');
+            document.getElementById('tabLogin').classList.remove('active');
         }
     }
 
-    async function handleLogin() {
+    async function checkUserSession() {
+        try {
+            const res = await fetch('/me');
+            const data = await res.json();
+            
+            if (data.logged_in) {
+                showDashboard(data.user.username);
+            } else {
+                showAuthScreen();
+            }
+        } catch (err) {
+            showAuthScreen();
+        }
+    }
+
+    async function handleLogin(e) {
+        e.preventDefault();
+        authError.textContent = '';
         const username = document.getElementById('loginUsername').value;
         const password = document.getElementById('loginPassword').value;
-        
-        const res = await fetch('/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-        
-        if (res.ok) {
-            closeModal('loginModal');
-            checkUserSession();
-        } else {
-            alert('Invalid credentials');
+
+        try {
+            const res = await fetch('/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                showDashboard(data.user.username);
+            } else {
+                authError.textContent = data.error || 'Invalid username or password';
+            }
+        } catch (err) {
+            authError.textContent = 'Server connection failed';
+        }
+    }
+
+    async function handleRegister(e) {
+        e.preventDefault();
+        authError.textContent = '';
+        const username = document.getElementById('regUsername').value;
+        const password = document.getElementById('regPassword').value;
+        const role = document.getElementById('regRole').value;
+
+        try {
+            const res = await fetch('/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, role })
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                alert('Account created! Logging you in...');
+                document.getElementById('loginUsername').value = username;
+                document.getElementById('loginPassword').value = password;
+                handleLogin(e);
+            } else {
+                authError.textContent = data.error || 'Registration failed';
+            }
+        } catch (err) {
+            authError.textContent = 'Server connection failed';
         }
     }
 
     async function handleLogout() {
         await fetch('/logout', { method: 'POST' });
-        checkUserSession();
+        showAuthScreen();
+    }
+
+    function showDashboard(username) {
+        authScreen.style.display = 'none';
+        dashboardScreen.style.display = 'block';
+        document.getElementById('welcomeUser').innerHTML = `👤 <strong>${username}</strong>`;
+        fetchSchools();
+    }
+
+    function showAuthScreen() {
+        authScreen.style.display = 'flex';
+        dashboardScreen.style.display = 'none';
+        document.getElementById('loginUsername').value = '';
+        document.getElementById('loginPassword').value = '';
     }
 
     // -------------------------------------------------------------
-    // SCHOOLS & ROSTER LOADING WITH FILTERS
+    // DATA LOADING & FILTERS
     // -------------------------------------------------------------
     async function fetchSchools() {
         try {
@@ -443,7 +593,6 @@
             const rate = data.total_students > 0 ? ((data.chronic_count / data.total_students) * 100).toFixed(1) : 0;
             document.getElementById('statRate').textContent = `${rate}%`;
 
-            // Populate Grade Filter options dynamically if empty
             const gradeSelect = document.getElementById('gradeFilter');
             if (gradeSelect.options.length <= 1 && data.available_grades) {
                 data.available_grades.forEach(g => {
@@ -486,7 +635,7 @@
     }
 
     // -------------------------------------------------------------
-    // INTERVENTIONS HANDLERS
+    // INTERVENTIONS
     // -------------------------------------------------------------
     async function openInterventionModal(dbId, studentName) {
         document.getElementById('modalStudentDbId').value = dbId;
