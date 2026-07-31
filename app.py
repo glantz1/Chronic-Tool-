@@ -25,7 +25,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-    role = db.Column(db.String(20), default="staff") # "admin" or "staff"
+    role = db.Column(db.String(20), default="staff")  # "admin" or "staff"
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -36,7 +36,7 @@ class User(db.Model):
 class School(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), unique=True, nullable=False)
-    grade_levels = db.Column(db.String(100), default="K,1,2,3,4,5,6,7,8,9,10,11,12") # Comma-separated
+    grade_levels = db.Column(db.String(100), default="K,1,2,3,4,5,6,7,8,9,10,11,12")  # Comma-separated string
 
 class Student(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -57,15 +57,14 @@ class Intervention(db.Model):
     notes = db.Column(db.Text, nullable=True)
     logged_by = db.Column(db.String(120), nullable=True)
 
+# Initialize database tables & seed default admin
 with app.app_context():
     db.create_all()
-    # Create default admin if no users exist
     if not User.query.filter_by(role="admin").first():
         default_admin = User(email="admin@school.edu", role="admin")
         default_admin.set_password("admin123")
         db.session.add(default_admin)
         
-        # Create default school
         default_school = School(name="Main High School", grade_levels="9,10,11,12")
         db.session.add(default_school)
         db.session.commit()
@@ -173,14 +172,8 @@ def add_school():
     return jsonify({"message": "School added successfully"})
 
 # -------------------------------------------------------------
-# APP FUNCTIONALITY ROUTES
+# FILE UPLOAD ROUTE (Flexible Column Mapping)
 # -------------------------------------------------------------
-@app.route("/schools", methods=["GET"])
-@login_required
-def get_schools():
-    schools = School.query.all()
-    return jsonify({"schools": [{"id": s.id, "name": s.name, "grade_levels": s.grade_levels.split(",")} for s in schools]})
-
 @app.route("/upload", methods=["POST"])
 @login_required
 def upload_file():
@@ -188,11 +181,11 @@ def upload_file():
     file = request.files.get("file")
 
     if not school_id or not file:
-        return jsonify({"error": "School and file are required"}), 400
+        return jsonify({"error": "School selection and file are required."}), 400
 
     school = School.query.get(school_id)
     if not school:
-        return jsonify({"error": "Invalid School ID"}), 400
+        return jsonify({"error": "Invalid School ID selected."}), 400
 
     try:
         filename = file.filename.lower()
@@ -201,43 +194,72 @@ def upload_file():
         elif filename.endswith((".xls", ".xlsx")):
             df = pd.read_excel(file)
         else:
-            return jsonify({"error": "Unsupported file format"}), 400
+            return jsonify({"error": "Unsupported file format. Please upload a .csv or .xlsx file."}), 400
 
-        # Standardize columns
-        df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
+        # Clean and normalize column headers (lowercase, strip whitespace, replace spaces/dashes)
+        df.columns = [str(c).strip().lower().replace(" ", "_").replace("-", "_") for c in df.columns]
 
-        id_col = next((c for c in df.columns if 'id' in c), None)
-        name_col = next((c for c in df.columns if 'name' in c), None)
-        grade_col = next((c for c in df.columns if 'grade' in c), None)
-        absent_col = next((c for c in df.columns if 'absent' in c or 'absence' in c), None)
-        total_col = next((c for c in df.columns if 'total' in c or 'enrolled' in c), None)
+        # Flexible matching for strictly required columns
+        id_col = next((c for c in df.columns if "id" in c or "student_id" in c), None)
+        name_col = next((c for c in df.columns if "name" in c or "student_name" in c), None)
+        absent_col = next((c for c in df.columns if "absent" in c or "absence" in c or "days_absent" in c), None)
 
-        if not id_col or not name_col or not absent_col:
-            return jsonify({"error": "CSV must have ID, Name, and Absences columns"}), 400
+        # Flexible matching for optional columns
+        grade_col = next((c for c in df.columns if "grade" in c or "level" in c), None)
+        total_col = next((c for c in df.columns if "total" in c or "enrolled" in c or "total_days" in c), None)
 
-        # Clear existing students for this school
+        # Explicit validation for missing required columns
+        missing_cols = []
+        if not id_col:
+            missing_cols.append("ID")
+        if not name_col:
+            missing_cols.append("Name")
+        if not absent_col:
+            missing_cols.append("Absences")
+
+        if missing_cols:
+            return jsonify({
+                "error": f"Missing required column(s): {', '.join(missing_cols)}. CSV must have ID, Name, and Absences columns."
+            }), 400
+
+        # Clear existing student data for this specific school prior to fresh import
         Student.query.filter_by(school_id=school_id).delete()
 
+        records = []
         for _, row in df.iterrows():
-            absent = float(row[absent_col]) if pd.notnull(row[absent_col]) else 0.0
-            total = float(row[total_col]) if total_col and pd.notnull(row[total_col]) else 180.0
-            grade = str(row[grade_col]) if grade_col and pd.notnull(row[grade_col]) else "N/A"
+            absent_val = float(row[absent_col]) if pd.notnull(row[absent_col]) else 0.0
+            total_val = float(row[total_col]) if total_col and pd.notnull(row[total_col]) else 180.0
+            grade_val = str(row[grade_col]).strip() if grade_col and pd.notnull(row[grade_col]) else "N/A"
 
             student = Student(
-                school_id=school_id,
-                student_id_str=str(row[id_col]),
-                name=str(row[name_col]),
-                grade=grade,
-                days_absent=absent,
-                total_days=total if total > 0 else 180.0
+                school_id=school.id,
+                student_id_str=str(row[id_col]).strip(),
+                name=str(row[name_col]).strip(),
+                grade=grade_val,
+                days_absent=absent_val,
+                total_days=total_val if total_val > 0 else 180.0
             )
-            db.session.add(student)
+            records.append(student)
 
+        db.session.bulk_save_objects(records)
         db.session.commit()
-        return jsonify({"message": "Data uploaded successfully!"})
+
+        return jsonify({
+            "message": f"Successfully processed {len(records)} student records for {school.name}."
+        })
+
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"File parsing failed: {str(e)}"}), 500
+
+# -------------------------------------------------------------
+# ROSTER & INTERVENTION ROUTES
+# -------------------------------------------------------------
+@app.route("/schools", methods=["GET"])
+@login_required
+def get_schools():
+    schools = School.query.all()
+    return jsonify({"schools": [{"id": s.id, "name": s.name, "grade_levels": s.grade_levels.split(",")} for s in schools]})
 
 @app.route("/students", methods=["GET"])
 @login_required
