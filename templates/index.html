@@ -370,7 +370,7 @@
                             <th>ID</th>
                             <th>Student Name</th>
                             <th>Grade</th>
-                            <th>Absences</th>
+                            <th>Absences (Days / Mins)</th>
                             <th>Total Days</th>
                             <th>Absence Rate</th>
                             <th>Status</th>
@@ -629,16 +629,17 @@
 
                 data.students.forEach(s => {
                     const tr = document.createElement('tr');
+                    const minutesDisplay = s.minutes_absent > 0 ? ` (${s.minutes_absent}m)` : '';
                     tr.innerHTML = `
                         <td>${s.student_id}</td>
                         <td><strong>${s.student_name}</strong></td>
                         <td>${s.grade}</td>
-                        <td>${s.days_absent}</td>
+                        <td>${s.days_absent}${minutesDisplay}</td>
                         <td>${s.total_days}</td>
                         <td>${s.absence_rate_pct}%</td>
                         <td>
-                            <span class="badge ${s.is_chronic ? 'badge-chronic' : 'badge-normal'}">
-                                ${s.is_chronic ? 'Chronic' : 'Regular'}
+                            <span class="badge ${s.is_chronic ? 'badge-chronic' : 'badge-normal'}" title="${s.is_chronic ? 'Triggered by: ' + s.chronic_reason : 'Regular'}">
+                                ${s.is_chronic ? 'Chronic (' + s.chronic_reason + ')' : 'Regular'}
                             </span>
                         </td>
                         <td>${s.interventions_count}</td>
