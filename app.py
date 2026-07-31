@@ -8,7 +8,7 @@ from functools import wraps
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "super-secret-key-change-in-prod")
 
-# Database setup (PostgreSQL on Render, fallback to local SQLite)
+# Database setup
 db_url = os.environ.get("DATABASE_URL", "sqlite:///attendance.db")
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
@@ -26,6 +26,9 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), default="staff")  # "admin" or "staff"
+    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True) # Null for Global Admins
+
+    school = db.relationship('School', backref='users', lazy=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -36,7 +39,7 @@ class User(db.Model):
 class School(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), unique=True, nullable=False)
-    grade_levels = db.Column(db.String(100), default="K,1,2,3,4,5,6,7,8,9,10,11,12")  # Comma-separated string
+    grade_levels = db.Column(db.String(100), default="K,1,2,3,4,5,6,7,8,9,10,11,12")
 
 class Student(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -57,16 +60,17 @@ class Intervention(db.Model):
     notes = db.Column(db.Text, nullable=True)
     logged_by = db.Column(db.String(120), nullable=True)
 
-# Initialize database tables & seed default admin
+# DB Initialization
 with app.app_context():
     db.create_all()
     if not User.query.filter_by(role="admin").first():
-        default_admin = User(email="admin@school.edu", role="admin")
-        default_admin.set_password("admin123")
-        db.session.add(default_admin)
-        
         default_school = School(name="Main High School", grade_levels="9,10,11,12")
         db.session.add(default_school)
+        db.session.commit()
+
+        default_admin = User(email="admin@school.edu", role="admin", school_id=None)
+        default_admin.set_password("admin123")
+        db.session.add(default_admin)
         db.session.commit()
 
 # -------------------------------------------------------------
@@ -109,7 +113,11 @@ def login():
         session["user_id"] = user.id
         session["email"] = user.email
         session["role"] = user.role
-        return jsonify({"message": "Logged in successfully", "user": {"email": user.email, "role": user.role}})
+        session["school_id"] = user.school_id
+        return jsonify({
+            "message": "Logged in successfully", 
+            "user": {"email": user.email, "role": user.role, "school_id": user.school_id}
+        })
     
     return jsonify({"error": "Invalid email or password"}), 401
 
@@ -123,11 +131,14 @@ def me():
     if "user_id" in session:
         user = User.query.get(session["user_id"])
         if user:
-            return jsonify({"logged_in": True, "user": {"email": user.email, "role": user.role}})
+            return jsonify({
+                "logged_in": True, 
+                "user": {"email": user.email, "role": user.role, "school_id": user.school_id}
+            })
     return jsonify({"logged_in": False})
 
 # -------------------------------------------------------------
-# ADMIN ROUTES (Admin Only)
+# ADMIN ROUTES
 # -------------------------------------------------------------
 @app.route("/admin/users", methods=["GET", "POST"])
 @admin_required
@@ -137,21 +148,28 @@ def manage_users():
         email = data.get("email", "").strip().lower()
         password = data.get("password")
         role = data.get("role", "staff")
+        school_id = data.get("school_id")  # Can be integer ID or None for admins
 
         if not email or not password:
             return jsonify({"error": "Email and password are required"}), 400
 
+        if role == "staff" and not school_id:
+            return jsonify({"error": "Staff members must be assigned to a specific school."}), 400
+
         if User.query.filter_by(email=email).first():
             return jsonify({"error": "User with this email already exists"}), 400
 
-        new_user = User(email=email, role=role)
+        new_user = User(email=email, role=role, school_id=int(school_id) if school_id else None)
         new_user.set_password(password)
         db.session.add(new_user)
         db.session.commit()
         return jsonify({"message": f"User {email} created successfully!"})
 
     users = User.query.all()
-    return jsonify({"users": [{"id": u.id, "email": u.email, "role": u.role} for u in users]})
+    return jsonify({"users": [
+        {"id": u.id, "email": u.email, "role": u.role, "school_name": u.school.name if u.school else "All Schools"} 
+        for u in users
+    ]})
 
 @app.route("/admin/schools", methods=["POST"])
 @admin_required
@@ -172,13 +190,32 @@ def add_school():
     return jsonify({"message": "School added successfully"})
 
 # -------------------------------------------------------------
-# FILE UPLOAD ROUTE (Flexible Column Mapping)
+# RESTRICTED DATA ROUTES
 # -------------------------------------------------------------
+@app.route("/schools", methods=["GET"])
+@login_required
+def get_schools():
+    user = User.query.get(session["user_id"])
+    
+    # If the user is staff, ONLY return their assigned school
+    if user.role != "admin" and user.school_id:
+        schools = School.query.filter_by(id=user.school_id).all()
+    else:
+        # Admins can see all schools
+        schools = School.query.all()
+        
+    return jsonify({"schools": [{"id": s.id, "name": s.name, "grade_levels": s.grade_levels.split(",")} for s in schools]})
+
 @app.route("/upload", methods=["POST"])
 @login_required
 def upload_file():
+    user = User.query.get(session["user_id"])
     school_id = request.form.get("school_id")
     file = request.files.get("file")
+
+    # Security check: Ensure staff can only upload to their assigned school
+    if user.role != "admin" and str(user.school_id) != str(school_id):
+        return jsonify({"error": "Unauthorized: You do not have permissions to upload to this school."}), 403
 
     if not school_id or not file:
         return jsonify({"error": "School selection and file are required."}), 400
@@ -194,35 +231,19 @@ def upload_file():
         elif filename.endswith((".xls", ".xlsx")):
             df = pd.read_excel(file)
         else:
-            return jsonify({"error": "Unsupported file format. Please upload a .csv or .xlsx file."}), 400
+            return jsonify({"error": "Unsupported file format."}), 400
 
-        # Clean and normalize column headers (lowercase, strip whitespace, replace spaces/dashes)
         df.columns = [str(c).strip().lower().replace(" ", "_").replace("-", "_") for c in df.columns]
 
-        # Flexible matching for strictly required columns
         id_col = next((c for c in df.columns if "id" in c or "student_id" in c), None)
         name_col = next((c for c in df.columns if "name" in c or "student_name" in c), None)
         absent_col = next((c for c in df.columns if "absent" in c or "absence" in c or "days_absent" in c), None)
-
-        # Flexible matching for optional columns
         grade_col = next((c for c in df.columns if "grade" in c or "level" in c), None)
         total_col = next((c for c in df.columns if "total" in c or "enrolled" in c or "total_days" in c), None)
 
-        # Explicit validation for missing required columns
-        missing_cols = []
-        if not id_col:
-            missing_cols.append("ID")
-        if not name_col:
-            missing_cols.append("Name")
-        if not absent_col:
-            missing_cols.append("Absences")
+        if not id_col or not name_col or not absent_col:
+            return jsonify({"error": "CSV must have ID, Name, and Absences columns."}), 400
 
-        if missing_cols:
-            return jsonify({
-                "error": f"Missing required column(s): {', '.join(missing_cols)}. CSV must have ID, Name, and Absences columns."
-            }), 400
-
-        # Clear existing student data for this specific school prior to fresh import
         Student.query.filter_by(school_id=school_id).delete()
 
         records = []
@@ -243,37 +264,30 @@ def upload_file():
 
         db.session.bulk_save_objects(records)
         db.session.commit()
-
-        return jsonify({
-            "message": f"Successfully processed {len(records)} student records for {school.name}."
-        })
+        return jsonify({"message": f"Successfully processed {len(records)} records for {school.name}."})
 
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"File parsing failed: {str(e)}"}), 500
 
-# -------------------------------------------------------------
-# ROSTER & INTERVENTION ROUTES
-# -------------------------------------------------------------
-@app.route("/schools", methods=["GET"])
-@login_required
-def get_schools():
-    schools = School.query.all()
-    return jsonify({"schools": [{"id": s.id, "name": s.name, "grade_levels": s.grade_levels.split(",")} for s in schools]})
-
 @app.route("/students", methods=["GET"])
 @login_required
 def get_students():
+    user = User.query.get(session["user_id"])
     school_id = request.args.get("school_id")
-    grade = request.args.get("grade")
-    chronic_only = request.args.get("chronic") == "true"
-    search = request.args.get("search", "").strip().lower()
+
+    # Security check: Force staff to only view their assigned school
+    if user.role != "admin" and str(user.school_id) != str(school_id):
+        return jsonify({"error": "Access denied to this school's data"}), 403
 
     if not school_id:
         return jsonify({"students": [], "total_students": 0, "chronic_count": 0})
 
-    query = Student.query.filter_by(school_id=school_id)
+    grade = request.args.get("grade")
+    chronic_only = request.args.get("chronic") == "true"
+    search = request.args.get("search", "").strip().lower()
 
+    query = Student.query.filter_by(school_id=school_id)
     if grade:
         query = query.filter_by(grade=grade)
 
