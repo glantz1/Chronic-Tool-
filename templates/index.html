@@ -1,1 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chronic Absenteeism Tool</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #0f172a;
+            --border: #e2e8f0;
+            --danger: #ef4444;
+            --success: #10b981;
+        }
 
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 12px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        /* Dropzone Styling */
+        .dropzone {
+            border: 2px dashed var(--primary);
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            background: #eff6ff;
+            transition: all 0.2s ease;
+        }
+
+        .dropzone.dragover {
+            background: #dbeafe;
+            border-color: var(--primary-hover);
+            transform: scale(1.01);
+        }
+
+        .dropzone p {
+            margin: 0;
+            font-weight: 500;
+            color: #3b82f6;
+        }
+
+        .controls {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 16px;
+            align-items: center;
+        }
+
+        select, input, button {
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        /* Stats grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            color: #64748b;
+        }
+
+        .stat-card p {
+            margin: 0;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        /* Table Styling */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background-color: #f1f5f9;
+        }
+
+        .badge-chronic {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .status-msg {
+            margin-top: 10px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h2>Chronic Absenteeism Tracking Tool</h2>
+        <div id="school-select-container">
+            <label for="schoolSelect"><strong>School:</strong> </label>
+            <select id="schoolSelect" onchange="loadStudents()">
+                <!-- Populated via API -->
+            </select>
+        </div>
+    </header>
+
+    <!-- Upload Section -->
+    <div class="card">
+        <h3>Upload Attendance CSV</h3>
+        <div class="dropzone" id="dropzone">
+            <p>📁 Drag and drop your attendance CSV file here, or click to select</p>
+            <input type="file" id="fileInput" accept=".csv" style="display: none;">
+        </div>
+        <div id="uploadStatus" class="status-msg"></div>
+    </div>
+
+    <!-- Metrics -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Total Students</h3>
+            <p id="statTotal">0</p>
+        </div>
+        <div class="stat-card">
+            <h3>Chronically Absent</h3>
+            <p id="statChronic" style="color: var(--danger);">0</p>
+        </div>
+        <div class="stat-card">
+            <h3>Chronic Rate</h3>
+            <p id="statRate">0%</p>
+        </div>
+    </div>
+
+    <!-- Student List -->
+    <div class="card">
+        <h3>Student Attendance Roster</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Student ID</th>
+                    <th>Name</th>
+                    <th>Grade</th>
+                    <th>Absences</th>
+                    <th>Total Days</th>
+                    <th>Absence Rate</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="studentTableBody">
+                <tr><td colspan="7" style="text-align: center; color: #64748b;">No data loaded. Upload a CSV to view roster.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const uploadStatus = document.getElementById('uploadStatus');
+
+    // Load available schools on start
+    document.addEventListener('DOMContentLoaded', () => {
+        fetchSchools();
+    });
+
+    async function fetchSchools() {
+        try {
+            const res = await fetch('/schools');
+            const data = await res.json();
+            const select = document.getElementById('schoolSelect');
+            select.innerHTML = '';
+            
+            data.schools.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.textContent = s.name;
+                select.appendChild(opt);
+            });
+
+            if (data.schools.length > 0) {
+                loadStudents();
+            }
+        } catch (err) {
+            console.error("Failed to load schools:", err);
+        }
+    }
+
+    // Drag and Drop Event Listeners
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('dragover');
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) {
+            handleFileUpload(e.dataTransfer.files[0]);
+        }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleFileUpload(e.target.files[0]);
+        }
+    });
+
+    // Handle CSV File Upload
+    async function handleFileUpload(file) {
+        const schoolId = document.getElementById('schoolSelect').value;
+        if (!schoolId) {
+            alert('Please select or add a school first.');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('school_id', schoolId);
+
+        uploadStatus.style.color = '#2563eb';
+        uploadStatus.textContent = `Uploading and processing "${file.name}"...`;
+
+        try {
+            const res = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                uploadStatus.style.color = '#10b981';
+                uploadStatus.textContent = `Success: Processed ${data.total_students} students (${data.chronic_count} chronic cases).`;
+                loadStudents();
+            } else {
+                uploadStatus.style.color = '#ef4444';
+                uploadStatus.textContent = `Error: ${data.error}`;
+            }
+        } catch (err) {
+            uploadStatus.style.color = '#ef4444';
+            uploadStatus.textContent = `Upload failed: ${err.message}`;
+        }
+    }
+
+    // Fetch and render student roster + metrics
+    async function loadStudents() {
+        const schoolId = document.getElementById('schoolSelect').value;
+        if (!schoolId) return;
+
+        try {
+            const res = await fetch(`/students?school_id=${schoolId}`);
+            const data = await res.json();
+
+            document.getElementById('statTotal').textContent = data.total_students;
+            document.getElementById('statChronic').textContent = data.chronic_count;
+            const rate = data.total_students > 0 ? ((data.chronic_count / data.total_students) * 100).toFixed(1) : 0;
+            document.getElementById('statRate').textContent = `${rate}%`;
+
+            const tbody = document.getElementById('studentTableBody');
+            tbody.innerHTML = '';
+
+            if (data.students.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">No students found for this school. Upload a CSV to populate.</td></tr>';
+                return;
+            }
+
+            data.students.forEach(s => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${s.student_id}</td>
+                    <td><strong>${s.student_name}</strong></td>
+                    <td>${s.grade}</td>
+                    <td>${s.days_absent}</td>
+                    <td>${s.total_days}</td>
+                    <td>${s.absence_rate_pct}</td>
+                    <td>${s.is_chronic ? '<span class="badge-chronic">CHRONIC</span>' : '<span style="color:#10b981;">Normal</span>'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } catch (err) {
+            console.error("Failed to load student roster:", err);
+        }
+    }
+</script>
+
+</body>
+</html>
