@@ -1,8 +1,17 @@
 import os
 import io
 import pandas as pd
-import os
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+
+# Explicit dynamic template path
+base_dir = os.path.abspath(os.path.dirname(__file__))
+template_dir = os.path.join(base_dir, 'templates')
+
+app = Flask(__name__, template_folder=template_dir)
+CORS(app)
 
 # Get the absolute path of the directory containing app.py
 base_dir = os.path.abspath(os.path.dirname(__file__))
