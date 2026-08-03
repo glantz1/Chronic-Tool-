@@ -1,7 +1,9 @@
 Flask
-Flask-CORS
 Flask-SQLAlchemy
-psycopg2-binary
 pandas
+openpyxl
 werkzeug
+Flask-Talisman
+Flask-Limiter
 gunicorn
+psycopg2-binary
