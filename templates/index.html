@@ -197,15 +197,14 @@
             
             <!-- CREATE SCHOOL FORM -->
             <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3">
-                <h4 class="font-semibold text-sm text-gray-800">Add or Update School</h4>
-                <form onsubmit="handleAddSchool(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <input type="text" id="admin-school-name" placeholder="School Name" required class="border rounded px-3 py-1.5 text-sm">
-                    <input type="text" id="admin-school-grades" placeholder="Grades (e.g. 6,7,8 or 9,10,11,12)" class="border rounded px-3 py-1.5 text-sm">
-                    <button type="submit" class="bg-indigo-600 text-white rounded px-3 py-1.5 text-sm font-semibold hover:bg-indigo-700">Save School</button>
+                <h4 class="font-semibold text-sm text-gray-800">Add New School</h4>
+                <form onsubmit="handleAddSchool(event)" class="flex gap-3">
+                    <input type="text" id="admin-school-name" placeholder="School Name (e.g. Lincoln High School)" required class="flex-grow border rounded px-3 py-1.5 text-sm">
+                    <button type="submit" class="bg-indigo-600 text-white rounded px-4 py-1.5 text-sm font-semibold hover:bg-indigo-700 shrink-0">Add School</button>
                 </form>
             </div>
 
-            <!-- SCHOOL MANAGEMENT LIST (DELETE SCHOOL) -->
+            <!-- SCHOOL MANAGEMENT LIST -->
             <div>
                 <h4 class="font-semibold text-sm text-gray-800 mb-2">Existing Schools</h4>
                 <div class="border rounded-lg overflow-hidden">
@@ -213,7 +212,6 @@
                         <thead class="bg-gray-100 uppercase font-semibold text-gray-500">
                             <tr>
                                 <th class="p-2">School Name</th>
-                                <th class="p-2">Assigned Grades</th>
                                 <th class="p-2 text-right">Action</th>
                             </tr>
                         </thead>
@@ -380,7 +378,7 @@
             document.getElementById("stat-total-students").innerText = data.total_students;
             document.getElementById("stat-chronic-count").innerText = data.chronic_count;
 
-            // Dynamically rebuild Grade Dropdown options for the current school
+            // Dynamically rebuild Grade Dropdown options based on actual uploaded students
             gradeSelect.innerHTML = '<option value="">All Grades</option>';
             if (data.available_grades && data.available_grades.length > 0) {
                 data.available_grades.forEach(g => {
@@ -551,18 +549,16 @@
         async function handleAddSchool(e) {
             e.preventDefault();
             const name = document.getElementById("admin-school-name").value;
-            const grade_levels = document.getElementById("admin-school-grades").value;
 
             const res = await fetch("/admin/schools", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, grade_levels })
+                body: JSON.stringify({ name })
             });
             const data = await res.json();
             alert(data.message || data.error);
             if (res.ok) {
                 document.getElementById("admin-school-name").value = "";
-                document.getElementById("admin-school-grades").value = "";
                 loadSchools();
             }
         }
@@ -572,7 +568,7 @@
             tbody.innerHTML = "";
 
             if (cachedSchools.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" class="p-2 text-center text-gray-400">No schools available.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="2" class="p-2 text-center text-gray-400">No schools available.</td></tr>';
                 return;
             }
 
@@ -580,7 +576,6 @@
                 const tr = document.createElement("tr");
                 tr.innerHTML = `
                     <td class="p-2 font-medium">${s.name}</td>
-                    <td class="p-2 font-mono">${s.grade_levels.join(', ')}</td>
                     <td class="p-2 text-right">
                         <button onclick="deleteSchool(${s.id}, '${s.name.replace(/'/g, "\\'")}')" class="text-red-600 hover:text-red-800 font-semibold">Delete</button>
                     </td>
