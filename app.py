@@ -126,7 +126,6 @@ class User(db.Model):
 class School(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), unique=True, nullable=False)
-    grade_levels = db.Column(db.String(100), default="K,1,2,3,4,5,6,7,8,9,10,11,12")
 
 class Student(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -179,7 +178,7 @@ with app.app_context():
     if not User.query.filter_by(role="admin").first():
         default_school = School.query.first()
         if not default_school:
-            default_school = School(name="Main High School", grade_levels="9,10,11,12")
+            default_school = School(name="Main School")
             db.session.add(default_school)
             db.session.commit()
 
@@ -311,21 +310,14 @@ def delete_user(user_id):
 def add_school():
     data = request.json or {}
     name = data.get("name", "").strip()
-    grades = data.get("grade_levels", "").strip()
-
-    if not grades:
-        grades = "K,1,2,3,4,5,6,7,8,9,10,11,12"
 
     if not name:
-        return jsonify({"error": "School name is required"}), 400
+        return jsonify({"error": "School name is required."}), 400
 
-    existing_school = School.query.filter_by(name=name).first()
-    if existing_school:
-        existing_school.grade_levels = grades
-        db.session.commit()
-        return jsonify({"message": f"Updated school '{name}' with grade levels: {grades}"})
+    if School.query.filter_by(name=name).first():
+        return jsonify({"error": f"A school named '{name}' already exists."}), 400
 
-    new_school = School(name=name, grade_levels=grades)
+    new_school = School(name=name)
     db.session.add(new_school)
     db.session.commit()
     return jsonify({"message": f"School '{name}' added successfully!"})
@@ -338,10 +330,7 @@ def delete_school(school_id):
         return jsonify({"error": "School not found."}), 404
 
     try:
-        # Unlink users assigned to this school before deletion
         User.query.filter_by(school_id=school_id).update({"school_id": None})
-        
-        # Delete students (which cascades to interventions) and the school
         Student.query.filter_by(school_id=school_id).delete()
         db.session.delete(school)
         db.session.commit()
@@ -460,7 +449,7 @@ def get_schools():
         schools = School.query.filter_by(id=user.school_id).all()
     else:
         schools = School.query.all()
-    return jsonify({"schools": [{"id": s.id, "name": s.name, "grade_levels": [g.strip() for g in s.grade_levels.split(",") if g.strip()]} for s in schools]})
+    return jsonify({"schools": [{"id": s.id, "name": s.name} for s in schools]})
 
 @app.route("/students", methods=["GET"])
 @login_required
@@ -472,7 +461,11 @@ def get_students():
         return jsonify({"error": "Access denied"}), 403
 
     if not school_id:
-        return jsonify({"students": [], "total_students": 0, "chronic_count": 0})
+        return jsonify({"students": [], "total_students": 0, "chronic_count": 0, "available_grades": []})
+
+    # Auto-detect all unique grades uploaded for this school
+    all_school_students = Student.query.filter_by(school_id=school_id).all()
+    available_grades = sorted(list(set(s.grade for s in all_school_students if s.grade and s.grade != "N/A")))
 
     grade = request.args.get("grade")
     chronic_only = request.args.get("chronic") == "true"
@@ -507,9 +500,6 @@ def get_students():
             "chronic_reason": status_info["chronic_reason"],
             "interventions_count": len(s.interventions)
         })
-
-    school = School.query.get(school_id)
-    available_grades = [g.strip() for g in school.grade_levels.split(",") if g.strip()] if school else []
 
     return jsonify({
         "students": filtered,
