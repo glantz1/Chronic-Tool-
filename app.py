@@ -130,7 +130,7 @@ class School(db.Model):
 
 class Student(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=False)
+    school_id = db.Column(db.Integer, db.ForeignKey('school.id', ondelete="CASCADE"), nullable=False)
     student_id_str = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     grade = db.Column(db.String(20), nullable=False)
@@ -144,7 +144,7 @@ class Student(db.Model):
 
 class Intervention(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    student_id = db.Column(db.Integer, db.ForeignKey('student.id'), nullable=False)
+    student_id = db.Column(db.Integer, db.ForeignKey('student.id', ondelete="CASCADE"), nullable=False)
     date = db.Column(db.String(20), nullable=False)
     action_type = db.Column(db.String(50), nullable=False)
     notes = db.Column(db.Text, nullable=True)
@@ -329,6 +329,27 @@ def add_school():
     db.session.add(new_school)
     db.session.commit()
     return jsonify({"message": f"School '{name}' added successfully!"})
+
+@app.route("/admin/schools/<int:school_id>", methods=["DELETE"])
+@admin_required
+def delete_school(school_id):
+    school = School.query.get(school_id)
+    if not school:
+        return jsonify({"error": "School not found."}), 404
+
+    try:
+        # Unlink users assigned to this school before deletion
+        User.query.filter_by(school_id=school_id).update({"school_id": None})
+        
+        # Delete students (which cascades to interventions) and the school
+        Student.query.filter_by(school_id=school_id).delete()
+        db.session.delete(school)
+        db.session.commit()
+        
+        return jsonify({"message": f"School '{school.name}' and its student data were successfully deleted."})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to delete school: {str(e)}"}), 500
 
 # -------------------------------------------------------------
 # FILE UPLOAD ROUTE
