@@ -3,463 +3,406 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Attendance & Chronic Absenteeism Tracker</title>
+    <title>Student Attendance & Intervention Tracker</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans">
+<body class="bg-gray-100 min-h-screen text-gray-800 flex flex-col">
 
-    <!-- Top Navigation Bar -->
-    <nav class="bg-indigo-900 text-white shadow-md">
+    <!-- NAVIGATION BAR -->
+    <nav class="bg-indigo-700 text-white shadow-md">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex items-center justify-between h-16">
+            <div class="flex justify-between h-16 items-center">
                 <div class="flex items-center space-x-3">
-                    <i class="fa-solid fa-clipboard-user text-2xl text-indigo-300"></i>
+                    <i class="fa-solid fa-graduation-cap text-2xl"></i>
                     <span class="font-bold text-xl tracking-wide">Attendance Tracker</span>
                 </div>
-                
-                <div id="authHeaderControls" class="flex items-center space-x-4 hidden">
-                    <div id="schoolSelectorWrapper" class="hidden">
-                        <select id="schoolSelect" onchange="loadStudents()" class="bg-indigo-800 text-white text-sm rounded-lg focus:ring-2 focus:ring-indigo-400 p-2 border border-indigo-700 outline-none">
-                            <option value="">Select School...</option>
-                        </select>
-                    </div>
-
-                    <button id="adminBtn" onclick="toggleAdminPanel()" class="hidden bg-indigo-700 hover:bg-indigo-600 text-xs text-white px-3 py-2 rounded-md font-medium transition">
-                        <i class="fa-solid fa-user-shield mr-1"></i> Admin Console
+                <div id="nav-actions" class="hidden flex items-center space-x-4">
+                    <span id="user-display" class="text-sm bg-indigo-800 px-3 py-1 rounded-full text-indigo-200"></span>
+                    <button id="admin-nav-btn" onclick="openAdminModal()" class="hidden bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded text-sm font-semibold transition">
+                        <i class="fa-solid fa-user-gear mr-1"></i> Admin Console
                     </button>
-
-                    <div class="text-xs text-indigo-200 border-l border-indigo-700 pl-4">
-                        <span id="userEmailDisplay" class="font-medium"></span>
-                        <span id="userRoleBadge" class="ml-1 px-2 py-0.5 rounded text-[10px] bg-indigo-800 text-indigo-200 uppercase font-semibold"></span>
-                    </div>
-
-                    <button onclick="logout()" class="text-xs bg-red-600 hover:bg-red-500 text-white px-3 py-2 rounded-md font-medium transition">
-                        <i class="fa-solid fa-right-from-bracket"></i>
+                    <button onclick="logout()" class="bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded text-sm font-semibold transition">
+                        <i class="fa-solid fa-right-from-bracket mr-1"></i> Logout
                     </button>
                 </div>
             </div>
         </div>
     </nav>
 
-    <!-- Main Container -->
-    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <!-- MAIN CONTAINER -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
 
-        <!-- 1. LOGIN SCREEN -->
-        <div id="loginSection" class="max-w-md mx-auto mt-12 bg-white p-8 rounded-xl shadow-md border border-slate-200">
-            <div class="text-center mb-6">
-                <h2 class="text-2xl font-bold text-slate-800">Welcome Back</h2>
-                <p class="text-sm text-slate-500">Sign in to access student attendance data</p>
-            </div>
-            
-            <div id="loginError" class="hidden mb-4 p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg"></div>
-
+        <!-- LOGIN CONTAINER -->
+        <div id="login-section" class="max-w-md mx-auto bg-white p-8 rounded-xl shadow-md mt-12 border border-gray-200">
+            <h2 class="text-2xl font-bold mb-6 text-center text-gray-900">Account Login</h2>
+            <div id="login-error" class="hidden mb-4 bg-red-100 text-red-700 p-3 rounded text-sm"></div>
             <form onsubmit="handleLogin(event)" class="space-y-4">
                 <div>
-                    <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Email Address</label>
-                    <input type="email" id="loginEmail" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                    <input type="email" id="login-email" required class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Password</label>
-                    <input type="password" id="loginPassword" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <input type="password" id="login-password" required class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                 </div>
-                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg text-sm transition duration-150">
+                <button type="submit" class="w-full bg-indigo-600 text-white font-semibold py-2 rounded hover:bg-indigo-700 transition">
                     Sign In
                 </button>
             </form>
         </div>
 
-        <!-- 2. ADMIN CONSOLE (Hidden by Default) -->
-        <div id="adminPanel" class="hidden mb-6 bg-white rounded-xl shadow-md border border-indigo-100 p-6">
-            <div class="flex justify-between items-center mb-4 border-b pb-3">
-                <h3 class="text-lg font-bold text-slate-800 flex items-center">
-                    <i class="fa-solid fa-sliders text-indigo-600 mr-2"></i> System Administration
-                </h3>
-                <button onclick="toggleAdminPanel()" class="text-slate-400 hover:text-slate-600">
-                    <i class="fa-solid fa-xmark text-lg"></i>
-                </button>
-            </div>
+        <!-- DASHBOARD CONTAINER -->
+        <div id="dashboard-section" class="hidden space-y-6">
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Add School Form -->
-                <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                    <h4 class="text-sm font-semibold text-slate-700 mb-3">Add New School</h4>
-                    <form onsubmit="handleAddSchool(event)" class="space-y-3">
-                        <input type="text" id="newSchoolName" placeholder="School Name (e.g. Oak High)" required class="w-full px-3 py-2 border rounded-md text-sm">
-                        <input type="text" id="newSchoolGrades" placeholder="Grade Levels (e.g. 9,10,11,12)" required class="w-full px-3 py-2 border rounded-md text-sm">
-                        <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-md text-xs font-medium hover:bg-indigo-700">
-                            Create School
-                        </button>
-                    </form>
+            <!-- TOP CONTROLS CARD -->
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-wrap justify-between items-center gap-4">
+                <div class="flex flex-wrap items-center gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-gray-500 mb-1">Selected School</label>
+                        <select id="school-select" onchange="loadStudents()" class="border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-indigo-500">
+                            <option value="">Select a School...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-gray-500 mb-1">Grade Level</label>
+                        <select id="grade-select" onchange="loadStudents()" class="border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-indigo-500">
+                            <option value="">All Grades</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center mt-5">
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="chronic-filter" onchange="loadStudents()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+                            <span class="ml-3 text-sm font-semibold text-gray-700">Chronic Absentees Only (&lt; 90%)</span>
+                        </label>
+                    </div>
                 </div>
 
-                <!-- Add User Form -->
-                <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                    <h4 class="text-sm font-semibold text-slate-700 mb-3">Create User Account</h4>
-                    <form onsubmit="handleAddUser(event)" class="space-y-3">
-                        <input type="email" id="newUserEmail" placeholder="User Email" required class="w-full px-3 py-2 border rounded-md text-sm">
-                        <input type="password" id="newUserPassword" placeholder="Password" required class="w-full px-3 py-2 border rounded-md text-sm">
-                        <div class="flex space-x-2">
-                            <select id="newUserRole" onchange="toggleUserSchoolSelect()" class="w-1/2 px-3 py-2 border rounded-md text-sm">
-                                <option value="staff">Staff</option>
-                                <option value="admin">Admin</option>
-                            </select>
-                            <select id="newUserSchool" class="w-1/2 px-3 py-2 border rounded-md text-sm">
-                                <option value="">Assign School...</option>
-                            </select>
-                        </div>
-                        <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-md text-xs font-medium hover:bg-indigo-700">
-                            Create Account
-                        </button>
-                    </form>
-                </div>
-            </div>
-
-            <!-- Existing Users List -->
-            <div class="mt-6">
-                <h4 class="text-sm font-semibold text-slate-700 mb-2">Existing Users</h4>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs border border-slate-200 rounded-lg">
-                        <thead class="bg-slate-100 text-slate-600 uppercase font-semibold">
-                            <tr>
-                                <th class="p-2 border-b">Email</th>
-                                <th class="p-2 border-b">Role</th>
-                                <th class="p-2 border-b">Assigned School</th>
-                                <th class="p-2 border-b text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="usersTableBody" class="divide-y divide-slate-200">
-                            <!-- Populated Dynamically -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- 3. MAIN DASHBOARD (Hidden until logged in) -->
-        <div id="dashboardSection" class="hidden space-y-6">
-
-            <!-- Data Management & Upload Banner -->
-            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
-                <div>
-                    <h2 class="text-lg font-bold text-slate-800">Data Import</h2>
-                    <p class="text-xs text-slate-500">Upload a PowerSchool CSV or Excel file containing attendance rates or days absent.</p>
-                </div>
-                <form onsubmit="handleFileUpload(event)" class="flex items-center space-x-2">
-                    <input type="file" id="uploadFile" accept=".csv, .xls, .xlsx" required class="text-xs text-slate-500 file:mr-2 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
-                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4 py-2 rounded-md font-medium transition">
-                        <i class="fa-solid fa-cloud-arrow-up mr-1"></i> Process File
+                <!-- ACTION BUTTONS: UPLOAD & EXPORT -->
+                <div class="flex items-center space-x-3">
+                    <!-- EXPORT BUTTON -->
+                    <button onclick="exportInterventions()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded text-sm transition flex items-center shadow-sm">
+                        <i class="fa-solid fa-file-excel mr-2"></i> Export Interventions
                     </button>
-                </form>
-            </div>
 
-            <!-- Metric Cards -->
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold uppercase text-slate-400">Total Enrolled</p>
-                        <h3 id="statTotal" class="text-2xl font-bold text-slate-800">0</h3>
-                    </div>
-                    <div class="p-3 bg-slate-100 text-slate-600 rounded-lg"><i class="fa-solid fa-users text-lg"></i></div>
-                </div>
-                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold uppercase text-slate-400">Chronically Absent (&lt;90%)</p>
-                        <h3 id="statChronic" class="text-2xl font-bold text-red-600">0</h3>
-                    </div>
-                    <div class="p-3 bg-red-50 text-red-600 rounded-lg"><i class="fa-solid fa-triangle-exclamation text-lg"></i></div>
-                </div>
-                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold uppercase text-slate-400">Chronic Rate</p>
-                        <h3 id="statRate" class="text-2xl font-bold text-slate-800">0%</h3>
-                    </div>
-                    <div class="p-3 bg-indigo-50 text-indigo-600 rounded-lg"><i class="fa-solid fa-chart-pie text-lg"></i></div>
+                    <!-- UPLOAD DATA BUTTON -->
+                    <button onclick="document.getElementById('file-upload').click()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-4 py-2 rounded text-sm transition flex items-center shadow-sm">
+                        <i class="fa-solid fa-cloud-arrow-up mr-2"></i> Upload Attendance File
+                    </button>
+                    <input type="file" id="file-upload" class="hidden" accept=".csv, .xlsx, .xls" onchange="uploadFile(event)">
                 </div>
             </div>
 
-            <!-- Filters & Student Search Bar -->
-            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
-                <div class="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-                    <!-- Search Input -->
-                    <div class="relative w-full sm:w-64">
-                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-400"></i>
-                        <input type="text" id="searchInput" oninput="loadStudents()" placeholder="Search student name or ID..." class="w-full pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <!-- METRICS COUNTER CARD -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <div class="text-gray-500 text-sm font-medium">Total Students Displayed</div>
+                        <div id="stat-total-students" class="text-3xl font-bold text-gray-900 mt-1">0</div>
                     </div>
-
-                    <!-- Grade Filter -->
-                    <select id="gradeFilter" onchange="loadStudents()" class="border border-slate-300 rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                        <option value="">All Grades</option>
-                    </select>
-
-                    <!-- Chronic Filter Checkbox -->
-                    <label class="flex items-center space-x-2 text-xs font-medium text-slate-600 cursor-pointer">
-                        <input type="checkbox" id="chronicOnlyToggle" onchange="loadStudents()" class="rounded text-indigo-600 focus:ring-indigo-500">
-                        <span>Show Chronically Absent Only (&lt;90%)</span>
-                    </label>
+                    <div class="p-3 bg-indigo-50 text-indigo-600 rounded-lg">
+                        <i class="fa-solid fa-users text-2xl"></i>
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <div class="text-gray-500 text-sm font-medium">Chronic Absentee Count</div>
+                        <div id="stat-chronic-count" class="text-3xl font-bold text-red-600 mt-1">0</div>
+                    </div>
+                    <div class="p-3 bg-red-50 text-red-600 rounded-lg">
+                        <i class="fa-solid fa-triangle-exclamation text-2xl"></i>
+                    </div>
                 </div>
             </div>
 
-            <!-- Student Data Table -->
-            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm">
-                        <thead class="bg-slate-50 text-slate-500 uppercase font-semibold text-[11px] border-b border-slate-200">
-                            <tr>
-                                <th class="p-3">Student ID</th>
-                                <th class="p-3">Name</th>
-                                <th class="p-3">Grade</th>
-                                <th class="p-3 text-center">Days Absent</th>
-                                <th class="p-3 text-center">Attendance Rate</th>
-                                <th class="p-3">Status / Reason</th>
-                                <th class="p-3 text-center">Interventions</th>
-                                <th class="p-3 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="studentTableBody" class="divide-y divide-slate-100">
-                            <!-- Dynamic Content -->
-                        </tbody>
-                    </table>
-                </div>
+            <!-- SEARCH BAR -->
+            <div class="relative">
+                <input type="text" id="search-input" onkeyup="loadStudents()" placeholder="Search by student name or ID number..." class="w-full border border-gray-300 rounded-xl pl-10 pr-4 py-3 bg-white shadow-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-4 text-gray-400"></i>
+            </div>
+
+            <!-- STUDENTS TABLE -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-50 border-b border-gray-200 text-xs uppercase font-semibold text-gray-500">
+                        <tr>
+                            <th class="py-3 px-4">Student ID</th>
+                            <th class="py-3 px-4">Student Name</th>
+                            <th class="py-3 px-4">Grade</th>
+                            <th class="py-3 px-4">Days Absent</th>
+                            <th class="py-3 px-4">Attendance Rate</th>
+                            <th class="py-3 px-4">Status</th>
+                            <th class="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="students-tbody" class="divide-y divide-gray-200 text-sm">
+                        <tr>
+                            <td colspan="7" class="text-center py-8 text-gray-500">Select a school to display student data.</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
 
         </div>
-
     </main>
 
     <!-- INTERVENTION LOG MODAL -->
-    <div id="interventionModal" class="hidden fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
-            <div class="flex justify-between items-center mb-4 border-b pb-3">
-                <div>
-                    <h3 class="font-bold text-slate-800 text-base" id="modalStudentName">Student Name</h3>
-                    <p class="text-xs text-slate-500" id="modalStudentSub">ID: - | Grade: -</p>
-                </div>
-                <button onclick="closeInterventionModal()" class="text-slate-400 hover:text-slate-600">
-                    <i class="fa-solid fa-xmark text-lg"></i>
-                </button>
-            </div>
-
-            <!-- New Intervention Form -->
-            <form onsubmit="submitIntervention(event)" class="space-y-3 mb-6 bg-slate-50 p-3 rounded-lg border">
-                <input type="hidden" id="modalStudentDbId">
-                <div class="grid grid-cols-2 gap-2">
+    <div id="intervention-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex justify-center items-center p-4">
+        <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 space-y-4 relative">
+            <button onclick="closeInterventionModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+            <h3 class="text-lg font-bold text-gray-900" id="modal-student-name">Student Interventions</h3>
+            
+            <form onsubmit="saveIntervention(event)" class="space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <input type="hidden" id="modal-student-id">
+                <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Date</label>
-                        <input type="date" id="intervDate" required class="w-full p-1.5 border rounded text-xs">
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Date</label>
+                        <input type="date" id="int-date" required class="w-full border rounded px-2 py-1.5 text-sm">
                     </div>
                     <div>
-                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Action Type</label>
-                        <select id="intervType" required class="w-full p-1.5 border rounded text-xs">
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Action Type</label>
+                        <select id="int-type" required class="w-full border rounded px-2 py-1.5 text-sm bg-white">
                             <option value="Phone Call">Phone Call</option>
                             <option value="Parent Conference">Parent Conference</option>
-                            <option value="Attendance Letter">Attendance Letter</option>
-                            <option value="Power School Message">Power School Message</option>
-                            <option value="Student Conference">Student Conference</option>
-                            <option value="Court Referred">Court Referred</option>
+                            <option value="Home Visit">Home Visit</option>
+                            <option value="Attendance Contract">Attendance Contract</option>
+                            <option value="Counseling Referral">Counseling Referral</option>
                         </select>
                     </div>
                 </div>
                 <div>
-                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Notes</label>
-                    <textarea id="intervNotes" rows="2" placeholder="Detail the conversation or action taken..." class="w-full p-1.5 border rounded text-xs"></textarea>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Notes</label>
+                    <textarea id="int-notes" rows="2" placeholder="Record specifics of the intervention..." class="w-full border rounded px-2 py-1.5 text-sm"></textarea>
                 </div>
-                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold py-1.5 rounded transition">
+                <button type="submit" class="bg-indigo-600 text-white font-medium px-4 py-1.5 rounded text-sm hover:bg-indigo-700">
                     Log Intervention
                 </button>
             </form>
 
-            <!-- History Log -->
-            <h4 class="text-xs font-bold uppercase text-slate-500 mb-2">Intervention History</h4>
-            <div id="interventionHistoryList" class="space-y-2 max-h-48 overflow-y-auto pr-1">
-                <!-- Dynamic Logs -->
+            <div class="space-y-2">
+                <h4 class="text-xs font-semibold uppercase text-gray-500">Past History</h4>
+                <div id="intervention-history-list" class="max-h-48 overflow-y-auto divide-y divide-gray-100 text-xs">
+                    <!-- Dynamic logs inserted here -->
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- JAVASCRIPT APP LOGIC -->
+    <!-- ADMIN CONSOLE MODAL -->
+    <div id="admin-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex justify-center items-center p-4">
+        <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 space-y-6 relative max-h-[90vh] overflow-y-auto">
+            <button onclick="closeAdminModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+            <h3 class="text-xl font-bold text-gray-900 border-b pb-3">Admin Console</h3>
+            
+            <!-- CREATE SCHOOL FORM -->
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3">
+                <h4 class="font-semibold text-sm text-gray-800">Add New School</h4>
+                <form onsubmit="handleAddSchool(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <input type="text" id="admin-school-name" placeholder="School Name" required class="border rounded px-3 py-1.5 text-sm">
+                    <input type="text" id="admin-school-grades" placeholder="Grades (e.g. 9,10,11,12)" value="K,1,2,3,4,5,6,7,8,9,10,11,12" class="border rounded px-3 py-1.5 text-sm">
+                    <button type="submit" class="bg-indigo-600 text-white rounded px-3 py-1.5 text-sm font-semibold hover:bg-indigo-700">Add School</button>
+                </form>
+            </div>
+
+            <!-- CREATE USER FORM -->
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3">
+                <h4 class="font-semibold text-sm text-gray-800">Create User Account</h4>
+                <form onsubmit="handleCreateUser(event)" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <input type="email" id="admin-user-email" placeholder="User Email" required class="border rounded px-3 py-1.5 text-sm">
+                    <input type="password" id="admin-user-pass" placeholder="Password" required class="border rounded px-3 py-1.5 text-sm">
+                    <select id="admin-user-role" onchange="toggleSchoolDropdown()" class="border rounded px-3 py-1.5 text-sm bg-white">
+                        <option value="staff">Staff</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                    <select id="admin-user-school" class="border rounded px-3 py-1.5 text-sm bg-white">
+                        <option value="">Assign School...</option>
+                    </select>
+                    <button type="submit" class="md:col-span-2 bg-emerald-600 text-white rounded px-3 py-1.5 text-sm font-semibold hover:bg-emerald-700">Create Account</button>
+                </form>
+            </div>
+
+            <!-- USER MANAGEMENT LIST -->
+            <div>
+                <h4 class="font-semibold text-sm text-gray-800 mb-2">Existing Users</h4>
+                <div class="border rounded-lg overflow-hidden">
+                    <table class="w-full text-left text-xs divide-y divide-gray-200">
+                        <thead class="bg-gray-100 uppercase font-semibold text-gray-500">
+                            <tr>
+                                <th class="p-2">Email</th>
+                                <th class="p-2">Role</th>
+                                <th class="p-2">Assigned School</th>
+                                <th class="p-2 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-users-tbody" class="divide-y divide-gray-200">
+                            <!-- Dynamic user rows inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT CONTROLLER -->
     <script>
         let currentUser = null;
-        let selectedSchoolId = null;
 
-        // Auto-initialize on load
-        document.addEventListener("DOMContentLoaded", () => {
-            document.getElementById('intervDate').value = new Date().toISOString().split('T')[0];
-            checkSession();
-        });
+        document.addEventListener("DOMContentLoaded", checkSession);
 
         async function checkSession() {
             try {
-                const res = await fetch('/me');
+                const res = await fetch("/me");
                 const data = await res.json();
                 if (data.logged_in) {
                     currentUser = data.user;
-                    renderAuthenticatedUI();
+                    showDashboard();
                 } else {
-                    renderLoggedOutUI();
+                    showLogin();
                 }
             } catch (err) {
-                console.error("Session check failed", err);
+                showLogin();
             }
         }
 
-        function renderAuthenticatedUI() {
-            document.getElementById('loginSection').classList.add('hidden');
-            document.getElementById('dashboardSection').classList.remove('hidden');
-            document.getElementById('authHeaderControls').classList.remove('hidden');
+        function showLogin() {
+            document.getElementById("login-section").classList.remove("hidden");
+            document.getElementById("dashboard-section").classList.add("hidden");
+            document.getElementById("nav-actions").classList.add("hidden");
+        }
 
-            document.getElementById('userEmailDisplay').innerText = currentUser.email;
-            document.getElementById('userRoleBadge').innerText = currentUser.role;
+        function showDashboard() {
+            document.getElementById("login-section").classList.add("hidden");
+            document.getElementById("dashboard-section").classList.remove("hidden");
+            document.getElementById("nav-actions").classList.remove("hidden");
+            document.getElementById("user-display").innerText = currentUser.email;
 
-            if (currentUser.role === 'admin') {
-                document.getElementById('adminBtn').classList.remove('hidden');
+            if (currentUser.role === "admin") {
+                document.getElementById("admin-nav-btn").classList.remove("hidden");
             }
-
             loadSchools();
-        }
-
-        function renderLoggedOutUI() {
-            document.getElementById('loginSection').classList.remove('hidden');
-            document.getElementById('dashboardSection').classList.add('hidden');
-            document.getElementById('authHeaderControls').classList.add('hidden');
-            document.getElementById('adminPanel').classList.add('hidden');
-            currentUser = null;
         }
 
         async function handleLogin(e) {
             e.preventDefault();
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-            const errDiv = document.getElementById('loginError');
-
-            errDiv.classList.add('hidden');
+            const email = document.getElementById("login-email").value;
+            const password = document.getElementById("login-password").value;
+            const errDiv = document.getElementById("login-error");
 
             try {
-                const res = await fetch('/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                const res = await fetch("/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ email, password })
                 });
                 const data = await res.json();
-
                 if (res.ok) {
                     currentUser = data.user;
-                    renderAuthenticatedUI();
+                    errDiv.classList.add("hidden");
+                    showDashboard();
                 } else {
-                    errDiv.innerText = data.error || "Login failed.";
-                    errDiv.classList.remove('hidden');
+                    errDiv.innerText = data.error || "Login failed";
+                    errDiv.classList.remove("hidden");
                 }
             } catch (err) {
-                errDiv.innerText = "Network error. Please try again.";
-                errDiv.classList.remove('hidden');
+                errDiv.innerText = "Connection error. Please try again.";
+                errDiv.classList.remove("hidden");
             }
         }
 
         async function logout() {
-            await fetch('/logout', { method: 'POST' });
-            renderLoggedOutUI();
+            await fetch("/logout", { method: "POST" });
+            location.reload();
         }
 
         async function loadSchools() {
-            const res = await fetch('/schools');
+            const res = await fetch("/schools");
             const data = await res.json();
+            const select = document.getElementById("school-select");
+            const adminSchoolSelect = document.getElementById("admin-user-school");
+            
+            select.innerHTML = '<option value="">Select a School...</option>';
+            adminSchoolSelect.innerHTML = '<option value="">Assign School...</option>';
 
-            const schoolSelect = document.getElementById('schoolSelect');
-            const newUserSchool = document.getElementById('newUserSchool');
+            data.schools.forEach(s => {
+                const opt = document.createElement("option");
+                opt.value = s.id;
+                opt.innerText = s.name;
+                select.appendChild(opt);
 
-            schoolSelect.innerHTML = '';
-            newUserSchool.innerHTML = '<option value="">Assign School...</option>';
+                const adminOpt = opt.cloneNode(true);
+                adminSchoolSelect.appendChild(adminOpt);
+            });
 
             if (data.schools.length > 0) {
-                document.getElementById('schoolSelectorWrapper').classList.remove('hidden');
-
-                data.schools.forEach(s => {
-                    const opt1 = document.createElement('option');
-                    opt1.value = s.id;
-                    opt1.innerText = s.name;
-                    schoolSelect.appendChild(opt1);
-
-                    const opt2 = document.createElement('option');
-                    opt2.value = s.id;
-                    opt2.innerText = s.name;
-                    newUserSchool.appendChild(opt2);
-                });
-
-                selectedSchoolId = currentUser.school_id || data.schools[0].id;
-                schoolSelect.value = selectedSchoolId;
+                select.value = data.schools[0].id;
                 loadStudents();
-            } else {
-                document.getElementById('schoolSelectorWrapper').classList.add('hidden');
             }
         }
 
         async function loadStudents() {
-            selectedSchoolId = document.getElementById('schoolSelect').value;
-            if (!selectedSchoolId) return;
+            const schoolId = document.getElementById("school-select").value;
+            if (!schoolId) return;
 
-            const grade = document.getElementById('gradeFilter').value;
-            const chronicOnly = document.getElementById('chronicOnlyToggle').checked;
-            const search = document.getElementById('searchInput').value;
+            const grade = document.getElementById("grade-select").value;
+            const chronic = document.getElementById("chronic-filter").checked;
+            const search = document.getElementById("search-input").value;
 
-            const url = `/students?school_id=${selectedSchoolId}&grade=${encodeURIComponent(grade)}&chronic=${chronicOnly}&search=${encodeURIComponent(search)}`;
+            const url = `/students?school_id=${schoolId}&grade=${encodeURIComponent(grade)}&chronic=${chronic}&search=${encodeURIComponent(search)}`;
             const res = await fetch(url);
             const data = await res.json();
 
-            // Render Metrics
-            document.getElementById('statTotal').innerText = data.total_students;
-            document.getElementById('statChronic').innerText = data.chronic_count;
-            const rate = data.total_students > 0 ? ((data.chronic_count / data.total_students) * 100).toFixed(1) : 0;
-            document.getElementById('statRate').innerText = `${rate}%`;
+            // Update Stats
+            document.getElementById("stat-total-students").innerText = data.total_students;
+            document.getElementById("stat-chronic-count").innerText = data.chronic_count;
 
-            // Populate Available Grades Dropdown
-            const gradeFilter = document.getElementById('gradeFilter');
-            const currentGrade = gradeFilter.value;
-            gradeFilter.innerHTML = '<option value="">All Grades</option>';
-            if (data.available_grades) {
+            // Update Grade Selector Options
+            const gradeSelect = document.getElementById("grade-select");
+            if (gradeSelect.options.length <= 1 && data.available_grades) {
                 data.available_grades.forEach(g => {
-                    const opt = document.createElement('option');
+                    const opt = document.createElement("option");
                     opt.value = g;
                     opt.innerText = `Grade ${g}`;
-                    if (g === currentGrade) opt.selected = true;
-                    gradeFilter.appendChild(opt);
+                    gradeSelect.appendChild(opt);
                 });
             }
 
-            // Render Table Body
-            const tbody = document.getElementById('studentTableBody');
-            tbody.innerHTML = '';
+            // Render Table
+            const tbody = document.getElementById("students-tbody");
+            tbody.innerHTML = "";
 
             if (data.students.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-400">No student records found.</td></tr>`;
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-400">No matching student records found.</td></tr>';
                 return;
             }
 
             data.students.forEach(s => {
-                const tr = document.createElement('tr');
-                tr.className = s.is_chronic ? "bg-red-50/50 hover:bg-red-50" : "hover:bg-slate-50";
+                const tr = document.createElement("tr");
+                tr.className = "hover:bg-gray-50";
+
+                const badgeClass = s.is_chronic 
+                    ? "bg-red-100 text-red-800 border-red-200" 
+                    : "bg-emerald-100 text-emerald-800 border-emerald-200";
 
                 tr.innerHTML = `
-                    <td class="p-3 font-mono text-xs text-slate-600">${s.student_id}</td>
-                    <td class="p-3 font-semibold text-slate-800">${s.student_name}</td>
-                    <td class="p-3 text-slate-600">${s.grade}</td>
-                    <td class="p-3 text-center font-medium">${s.days_absent}</td>
-                    <td class="p-3 text-center font-bold ${s.attendance_rate_pct < 90 ? 'text-red-600' : 'text-slate-700'}">
-                        ${s.attendance_rate_pct}%
-                    </td>
-                    <td class="p-3">
-                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${s.is_chronic ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}">
-                            ${s.chronic_reason}
+                    <td class="py-3 px-4 font-mono text-xs text-gray-600">${s.student_id}</td>
+                    <td class="py-3 px-4 font-semibold text-gray-900">${s.student_name}</td>
+                    <td class="py-3 px-4">${s.grade}</td>
+                    <td class="py-3 px-4">${s.days_absent} / ${s.total_days}</td>
+                    <td class="py-3 px-4 font-bold ${s.is_chronic ? 'text-red-600' : 'text-gray-800'}">${s.attendance_rate_pct}%</td>
+                    <td class="py-3 px-4">
+                        <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold border ${badgeClass}">
+                            ${s.is_chronic ? 'Chronic Absentee' : 'Regular'}
                         </span>
                     </td>
-                    <td class="p-3 text-center">
-                        <span class="bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full text-xs">
-                            ${s.interventions_count}
-                        </span>
-                    </td>
-                    <td class="p-3 text-right">
-                        <button onclick="openInterventionModal(${s.db_id}, '${s.student_name.replace(/'/g, "\\'")}', '${s.student_id}', '${s.grade}')" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 text-xs px-2.5 py-1 rounded-md font-semibold transition">
-                            Log Action
+                    <td class="py-3 px-4 text-right">
+                        <button onclick="openInterventionModal(${s.db_id}, '${s.student_name.replace(/'/g, "\\'")}')" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-3 py-1 rounded text-xs font-semibold">
+                            Logs (${s.interventions_count})
                         </button>
                     </td>
                 `;
@@ -467,191 +410,183 @@
             });
         }
 
-        async function handleFileUpload(e) {
-            e.preventDefault();
-            const schoolId = document.getElementById('schoolSelect').value;
-            const fileInput = document.getElementById('uploadFile');
+        // -------------------------------------------------------------
+        // EXPORT FUNCTIONALITY
+        // -------------------------------------------------------------
+        function exportInterventions() {
+            const schoolId = document.getElementById("school-select").value;
+            if (!schoolId) {
+                alert("Please select a school first before exporting records.");
+                return;
+            }
+            window.location.href = `/export/interventions?school_id=${schoolId}`;
+        }
 
-            if (!schoolId || !fileInput.files[0]) {
-                alert("Please select a school and a valid file.");
+        async function uploadFile(e) {
+            const file = e.target.files[0];
+            const schoolId = document.getElementById("school-select").value;
+
+            if (!file || !schoolId) {
+                alert("Please select a school and a valid CSV/Excel file.");
                 return;
             }
 
             const formData = new FormData();
-            formData.append('school_id', schoolId);
-            formData.append('file', fileInput.files[0]);
+            formData.append("file", file);
+            formData.append("school_id", schoolId);
 
-            try {
-                const res = await fetch('/upload', { method: 'POST', body: formData });
-                const data = await res.json();
-
-                if (res.ok) {
-                    alert(data.message);
-                    fileInput.value = '';
-                    loadStudents();
-                } else {
-                    alert("Upload Error: " + data.error);
-                }
-            } catch (err) {
-                alert("File processing failed.");
-            }
+            const res = await fetch("/upload", { method: "POST", body: formData });
+            const data = await res.json();
+            alert(data.message || data.error);
+            if (res.ok) loadStudents();
         }
 
-        // Modal Operations
-        async function openInterventionModal(dbId, name, studentIdStr, grade) {
-            document.getElementById('modalStudentDbId').value = dbId;
-            document.getElementById('modalStudentName').innerText = name;
-            document.getElementById('modalStudentSub').innerText = `ID: ${studentIdStr} | Grade: ${grade}`;
-            document.getElementById('intervNotes').value = '';
-            
-            await fetchInterventionHistory(dbId);
-            document.getElementById('interventionModal').classList.remove('hidden');
+        function openInterventionModal(id, name) {
+            document.getElementById("modal-student-id").value = id;
+            document.getElementById("modal-student-name").innerText = `Interventions: ${name}`;
+            document.getElementById("int-date").value = new Date().toISOString().split('T')[0];
+            document.getElementById("intervention-modal").classList.remove("hidden");
+            loadInterventions(id);
         }
 
         function closeInterventionModal() {
-            document.getElementById('interventionModal').classList.add('hidden');
+            document.getElementById("intervention-modal").classList.add("hidden");
         }
 
-        async function fetchInterventionHistory(dbId) {
-            const list = document.getElementById('interventionHistoryList');
-            list.innerHTML = `<p class="text-xs text-slate-400">Loading...</p>`;
-
-            const res = await fetch(`/interventions?student_db_id=${dbId}`);
+        async function loadInterventions(studentDbId) {
+            const res = await fetch(`/interventions?student_db_id=${studentDbId}`);
             const data = await res.json();
+            const list = document.getElementById("intervention-history-list");
+            list.innerHTML = "";
 
-            list.innerHTML = '';
             if (data.interventions.length === 0) {
-                list.innerHTML = `<p class="text-xs text-slate-400">No prior interventions recorded.</p>`;
+                list.innerHTML = '<div class="py-2 text-gray-400 italic">No interventions logged yet.</div>';
                 return;
             }
 
             data.interventions.forEach(i => {
-                const item = document.createElement('div');
-                item.className = "p-2 bg-slate-50 border rounded text-xs space-y-1";
+                const item = document.createElement("div");
+                item.className = "py-2";
                 item.innerHTML = `
-                    <div class="flex justify-between font-semibold text-slate-700">
+                    <div class="flex justify-between font-semibold text-gray-700">
                         <span>${i.type}</span>
-                        <span class="text-slate-400 font-normal">${i.date}</span>
+                        <span class="text-gray-400">${i.date}</span>
                     </div>
-                    ${i.notes ? `<p class="text-slate-600">${i.notes}</p>` : ''}
-                    <div class="text-[10px] text-slate-400">Logged by: ${i.logged_by || 'Unknown'}</div>
+                    <p class="text-gray-600 mt-0.5">${i.notes || 'No notes added.'}</p>
+                    <div class="text-[10px] text-gray-400 mt-0.5">Logged by: ${i.logged_by || 'Unknown'}</div>
                 `;
                 list.appendChild(item);
             });
         }
 
-        async function submitIntervention(e) {
+        async function saveIntervention(e) {
             e.preventDefault();
-            const student_db_id = document.getElementById('modalStudentDbId').value;
-            const date = document.getElementById('intervDate').value;
-            const type = document.getElementById('intervType').value;
-            const notes = document.getElementById('intervNotes').value;
+            const student_db_id = document.getElementById("modal-student-id").value;
+            const date = document.getElementById("int-date").value;
+            const type = document.getElementById("int-type").value;
+            const notes = document.getElementById("int-notes").value;
 
-            const res = await fetch('/interventions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            const res = await fetch("/interventions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ student_db_id, date, type, notes })
             });
 
             if (res.ok) {
-                document.getElementById('intervNotes').value = '';
-                await fetchInterventionHistory(student_db_id);
+                document.getElementById("int-notes").value = "";
+                loadInterventions(student_db_id);
                 loadStudents();
-            } else {
-                alert("Failed to record intervention.");
             }
         }
 
-        // Admin Management
-        function toggleAdminPanel() {
-            const panel = document.getElementById('adminPanel');
-            panel.classList.toggle('hidden');
-            if (!panel.classList.contains('hidden')) {
+        // -------------------------------------------------------------
+        // ADMIN CONSOLE FUNCTIONS
+        // -------------------------------------------------------------
+        function openAdminModal() {
+            document.getElementById("admin-modal").classList.remove("hidden");
+            loadAdminUsers();
+        }
+
+        function closeAdminModal() {
+            document.getElementById("admin-modal").classList.add("hidden");
+        }
+
+        function toggleSchoolDropdown() {
+            const role = document.getElementById("admin-user-role").value;
+            const schoolSelect = document.getElementById("admin-user-school");
+            if (role === "admin") {
+                schoolSelect.disabled = true;
+                schoolSelect.value = "";
+            } else {
+                schoolSelect.disabled = false;
+            }
+        }
+
+        async function handleAddSchool(e) {
+            e.preventDefault();
+            const name = document.getElementById("admin-school-name").value;
+            const grade_levels = document.getElementById("admin-school-grades").value;
+
+            const res = await fetch("/admin/schools", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name, grade_levels })
+            });
+            const data = await res.json();
+            alert(data.message || data.error);
+            if (res.ok) {
+                document.getElementById("admin-school-name").value = "";
+                loadSchools();
+            }
+        }
+
+        async function handleCreateUser(e) {
+            e.preventDefault();
+            const email = document.getElementById("admin-user-email").value;
+            const password = document.getElementById("admin-user-pass").value;
+            const role = document.getElementById("admin-user-role").value;
+            const school_id = document.getElementById("admin-user-school").value;
+
+            const res = await fetch("/admin/users", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, password, role, school_id })
+            });
+            const data = await res.json();
+            alert(data.message || data.error);
+            if (res.ok) {
+                document.getElementById("admin-user-email").value = "";
+                document.getElementById("admin-user-pass").value = "";
                 loadAdminUsers();
             }
         }
 
-        function toggleUserSchoolSelect() {
-            const role = document.getElementById('newUserRole').value;
-            const schoolSelect = document.getElementById('newUserSchool');
-            schoolSelect.disabled = (role === 'admin');
-        }
-
         async function loadAdminUsers() {
-            const res = await fetch('/admin/users');
+            const res = await fetch("/admin/users");
             const data = await res.json();
-            const tbody = document.getElementById('usersTableBody');
-            tbody.innerHTML = '';
+            const tbody = document.getElementById("admin-users-tbody");
+            tbody.innerHTML = "";
 
             data.users.forEach(u => {
-                const tr = document.createElement('tr');
+                const tr = document.createElement("tr");
                 tr.innerHTML = `
-                    <td class="p-2 border-b font-medium text-slate-700">${u.email}</td>
-                    <td class="p-2 border-b uppercase text-[10px] font-bold text-slate-500">${u.role}</td>
-                    <td class="p-2 border-b text-slate-600">${u.school_name}</td>
-                    <td class="p-2 border-b text-right">
-                        <button onclick="deleteUser(${u.id})" class="text-red-500 hover:text-red-700 font-semibold text-xs">Delete</button>
+                    <td class="p-2 font-medium">${u.email}</td>
+                    <td class="p-2 uppercase font-mono">${u.role}</td>
+                    <td class="p-2">${u.school_name}</td>
+                    <td class="p-2 text-right">
+                        <button onclick="deleteUser(${u.id})" class="text-red-600 hover:text-red-800 font-semibold">Delete</button>
                     </td>
                 `;
                 tbody.appendChild(tr);
             });
         }
 
-        async function handleAddSchool(e) {
-            e.preventDefault();
-            const name = document.getElementById('newSchoolName').value;
-            const grade_levels = document.getElementById('newSchoolGrades').value;
-
-            const res = await fetch('/admin/schools', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, grade_levels })
-            });
-
-            if (res.ok) {
-                alert("School created successfully!");
-                document.getElementById('newSchoolName').value = '';
-                loadSchools();
-            } else {
-                const data = await res.json();
-                alert(data.error);
-            }
-        }
-
-        async function handleAddUser(e) {
-            e.preventDefault();
-            const email = document.getElementById('newUserEmail').value;
-            const password = document.getElementById('newUserPassword').value;
-            const role = document.getElementById('newUserRole').value;
-            const school_id = document.getElementById('newUserSchool').value;
-
-            const res = await fetch('/admin/users', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password, role, school_id })
-            });
-
-            if (res.ok) {
-                alert("User created!");
-                document.getElementById('newUserEmail').value = '';
-                document.getElementById('newUserPassword').value = '';
-                loadAdminUsers();
-            } else {
-                const data = await res.json();
-                alert(data.error);
-            }
-        }
-
         async function deleteUser(userId) {
             if (!confirm("Are you sure you want to delete this user?")) return;
-
-            const res = await fetch(`/admin/users/${userId}`, { method: 'DELETE' });
-            if (res.ok) {
-                loadAdminUsers();
-            } else {
-                const data = await res.json();
-                alert(data.error);
-            }
+            const res = await fetch(`/admin/users/${userId}`, { method: "DELETE" });
+            const data = await res.json();
+            alert(data.message || data.error);
+            if (res.ok) loadAdminUsers();
         }
     </script>
 </body>
