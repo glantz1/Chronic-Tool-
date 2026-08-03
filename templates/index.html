@@ -205,6 +205,23 @@
                 </form>
             </div>
 
+            <!-- SCHOOL MANAGEMENT LIST (DELETE SCHOOL) -->
+            <div>
+                <h4 class="font-semibold text-sm text-gray-800 mb-2">Existing Schools</h4>
+                <div class="border rounded-lg overflow-hidden">
+                    <table class="w-full text-left text-xs divide-y divide-gray-200">
+                        <thead class="bg-gray-100 uppercase font-semibold text-gray-500">
+                            <tr>
+                                <th class="p-2">School Name</th>
+                                <th class="p-2">Assigned Grades</th>
+                                <th class="p-2 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-schools-tbody" class="divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- CREATE USER FORM -->
             <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3">
                 <h4 class="font-semibold text-sm text-gray-800">Create User Account</h4>
@@ -245,6 +262,7 @@
     <!-- JAVASCRIPT CONTROLLER -->
     <script>
         let currentUser = null;
+        let cachedSchools = [];
 
         document.addEventListener("DOMContentLoaded", checkSession);
 
@@ -316,13 +334,16 @@
         async function loadSchools() {
             const res = await fetch("/schools");
             const data = await res.json();
+            cachedSchools = data.schools;
+
             const select = document.getElementById("school-select");
             const adminSchoolSelect = document.getElementById("admin-user-school");
             
+            const currentSelected = select.value;
             select.innerHTML = '<option value="">Select a School...</option>';
             adminSchoolSelect.innerHTML = '<option value="">Assign School...</option>';
 
-            data.schools.forEach(s => {
+            cachedSchools.forEach(s => {
                 const opt = document.createElement("option");
                 opt.value = s.id;
                 opt.innerText = s.name;
@@ -332,10 +353,14 @@
                 adminSchoolSelect.appendChild(adminOpt);
             });
 
-            if (data.schools.length > 0) {
-                select.value = data.schools[0].id;
+            if (cachedSchools.length > 0) {
+                select.value = currentSelected && cachedSchools.some(s => s.id == currentSelected) ? currentSelected : cachedSchools[0].id;
                 loadStudents();
+            } else {
+                document.getElementById("students-tbody").innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-500">No schools created yet. Please add a school in the Admin Console.</td></tr>';
             }
+
+            renderAdminSchools();
         }
 
         async function loadStudents() {
@@ -505,6 +530,7 @@
         function openAdminModal() {
             document.getElementById("admin-modal").classList.remove("hidden");
             loadAdminUsers();
+            renderAdminSchools();
         }
 
         function closeAdminModal() {
@@ -539,6 +565,39 @@
                 document.getElementById("admin-school-grades").value = "";
                 loadSchools();
             }
+        }
+
+        function renderAdminSchools() {
+            const tbody = document.getElementById("admin-schools-tbody");
+            tbody.innerHTML = "";
+
+            if (cachedSchools.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="p-2 text-center text-gray-400">No schools available.</td></tr>';
+                return;
+            }
+
+            cachedSchools.forEach(s => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td class="p-2 font-medium">${s.name}</td>
+                    <td class="p-2 font-mono">${s.grade_levels.join(', ')}</td>
+                    <td class="p-2 text-right">
+                        <button onclick="deleteSchool(${s.id}, '${s.name.replace(/'/g, "\\'")}')" class="text-red-600 hover:text-red-800 font-semibold">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function deleteSchool(schoolId, schoolName) {
+            if (!confirm(`Are you sure you want to delete '${schoolName}'?\n\nWARNING: This will permanently delete all students and intervention logs associated with this school.`)) {
+                return;
+            }
+
+            const res = await fetch(`/admin/schools/${schoolId}`, { method: "DELETE" });
+            const data = await res.json();
+            alert(data.message || data.error);
+            if (res.ok) loadSchools();
         }
 
         async function handleCreateUser(e) {
