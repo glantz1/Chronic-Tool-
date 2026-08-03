@@ -1,6 +1,7 @@
 import os
 import re
 import io
+import secrets
 import pandas as pd
 from flask import Flask, request, jsonify, render_template, session, send_file
 from flask_sqlalchemy import SQLAlchemy
@@ -8,8 +9,38 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from sqlalchemy import inspect, text
 
+# Security Extensions
+from flask_talisman import Talisman
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "super-secret-key-change-in-prod")
+
+# -------------------------------------------------------------
+# APPLICATION SECURITY & SESSION CONFIGURATION
+# -------------------------------------------------------------
+raw_secret = os.environ.get("SECRET_KEY")
+if not raw_secret or raw_secret == "super-secret-key-change-in-prod":
+    app.secret_key = secrets.token_hex(32)
+else:
+    app.secret_key = raw_secret
+
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,       # Prevent JavaScript reading session cookies
+    SESSION_COOKIE_SAMESITE='Lax',      # CSRF mitigation
+    SESSION_COOKIE_SECURE=os.environ.get("FLASK_ENV") == "production"  # HTTPS only in production
+)
+
+# Apply Security Headers
+Talisman(app, content_security_policy=None, force_https=os.environ.get("FLASK_ENV") == "production")
+
+# Rate Limiter
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
 
 # -------------------------------------------------------------
 # DATABASE CONFIGURATION
@@ -47,7 +78,6 @@ def calculate_chronic_status(student, threshold=90.0):
     day_rate = (student.days_absent / student.total_days * 100.0) if (student.total_days and student.total_days > 0) else 0.0
     min_rate = (student.minutes_absent / student.total_minutes * 100.0) if (student.total_minutes and student.total_minutes > 0) else 0.0
     
-    # Priority check: PresentFTE3 from Column V
     if student.present_fte3 >= 0.0:
         attendance_rate = student.present_fte3
         absence_rate = 100.0 - attendance_rate
@@ -55,14 +85,12 @@ def calculate_chronic_status(student, threshold=90.0):
         absence_rate = max(day_rate, min_rate)
         attendance_rate = 100.0 - absence_rate
 
-    # Chronic threshold evaluation (< 90% Attendance or >= 10% Absence)
     is_chronic_fte3 = (student.present_fte3 >= 0.0 and student.present_fte3 < threshold)
     is_chronic_days = day_rate >= (100.0 - threshold)
     is_chronic_mins = min_rate >= (100.0 - threshold)
 
     is_chronic = is_chronic_fte3 or is_chronic_days or is_chronic_mins
 
-    # Standardized display wording (FTE3 terminology removed)
     reason = "Regular"
     if is_chronic:
         if is_chronic_fte3 or attendance_rate < threshold:
@@ -84,7 +112,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-    role = db.Column(db.String(20), default="staff")  # "admin" or "staff"
+    role = db.Column(db.String(20), default="staff")
     school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)
 
     school = db.relationship('School', backref='users', lazy=True)
@@ -110,7 +138,7 @@ class Student(db.Model):
     total_days = db.Column(db.Float, nullable=False, default=180)
     minutes_absent = db.Column(db.Float, nullable=False, default=0)
     total_minutes = db.Column(db.Float, nullable=False, default=0)
-    present_fte3 = db.Column(db.Float, nullable=False, default=-1.0)  # Stores PresentFTE3 (Column V)
+    present_fte3 = db.Column(db.Float, nullable=False, default=-1.0)
 
     interventions = db.relationship('Intervention', backref='student', cascade="all, delete-orphan", lazy=True)
 
@@ -148,7 +176,6 @@ with app.app_context():
                 conn.execute(text('ALTER TABLE student ADD COLUMN present_fte3 FLOAT DEFAULT -1.0;'))
             conn.commit()
 
-    # Create default admin if missing
     if not User.query.filter_by(role="admin").first():
         default_school = School.query.first()
         if not default_school:
@@ -191,6 +218,7 @@ def index():
     return render_template("index.html")
 
 @app.route("/login", methods=["POST"])
+@limiter.limit("5 per minute")
 def login():
     data = request.json or {}
     email = data.get("email", "").strip().lower()
@@ -198,6 +226,7 @@ def login():
 
     user = User.query.filter_by(email=email).first()
     if user and user.check_password(password):
+        session.clear()
         session["user_id"] = user.id
         session["email"] = user.email
         session["role"] = user.role
@@ -325,7 +354,6 @@ def upload_file():
         else:
             return jsonify({"error": "Unsupported file format. Please upload a .csv or .xlsx file."}), 400
 
-        # Look specifically for 'PresentFTE3' or Column V (Index 21) as fallback
         fte3_col = next(
             (c for c in df.columns if str(c).strip().replace(" ", "").replace("_", "") == "PresentFTE3"), 
             None
@@ -346,7 +374,6 @@ def upload_file():
 
         df = df.dropna(subset=[id_col, name_col])
 
-        # Overwrite current school dataset
         Student.query.filter_by(school_id=school_id).delete()
 
         records = []
@@ -365,7 +392,6 @@ def upload_file():
             raw_fte3 = row[fte3_col] if fte3_col and fte3_col in row else None
             fte3_val = safe_float_convert(raw_fte3, default=-1.0)
 
-            # Auto-convert decimal percentages (0.885 -> 88.5%)
             if 0.0 < fte3_val <= 1.0:
                 fte3_val = fte3_val * 100.0
 
@@ -468,13 +494,6 @@ def get_students():
 @app.route("/interventions", methods=["GET", "POST"])
 @login_required
 def handle_interventions():
-    # Supported Action Types:
-    # - Phone Call
-    # - Parent Conference
-    # - Attendance Letter
-    # - Power School Message
-    # - Student Conference
-    # - Court Referred
     if request.method == "POST":
         data = request.json or {}
         student_db_id = data.get("student_db_id")
@@ -507,6 +526,55 @@ def handle_interventions():
             "logged_by": i.logged_by
         } for i in interventions]
     })
+
+# -------------------------------------------------------------
+# INTERVENTION EXPORT ROUTE (EXCEL / CSV)
+# -------------------------------------------------------------
+@app.route("/export/interventions", methods=["GET"])
+@login_required
+def export_interventions():
+    user = User.query.get(session["user_id"])
+    school_id = request.args.get("school_id")
+
+    if user.role != "admin" and str(user.school_id) != str(school_id):
+        return jsonify({"error": "Unauthorized access to this school's records."}), 403
+
+    if not school_id:
+        return jsonify({"error": "School ID is required."}), 400
+
+    students = Student.query.filter_by(school_id=school_id).all()
+    
+    export_data = []
+    for student in students:
+        for intervention in student.interventions:
+            export_data.append({
+                "Student ID": student.student_id_str,
+                "Student Name": student.name,
+                "Grade": student.grade,
+                "Intervention Date": intervention.date,
+                "Action Type": intervention.action_type,
+                "Notes": intervention.notes or "",
+                "Logged By": intervention.logged_by or "System"
+            })
+
+    if not export_data:
+        return jsonify({"error": "No intervention logs found for this school."}), 404
+
+    df = pd.DataFrame(export_data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Intervention Logs')
+    output.seek(0)
+
+    school = School.query.get(school_id)
+    school_name_clean = school.name.replace(" ", "_") if school else f"School_{school_id}"
+
+    return send_file(
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"Intervention_Logs_{school_name_clean}.xlsx"
+    )
 
 # -------------------------------------------------------------
 # APPLICATION ENTRYPOINT
