@@ -311,18 +311,24 @@ def delete_user(user_id):
 def add_school():
     data = request.json or {}
     name = data.get("name", "").strip()
-    grades = data.get("grade_levels", "K,1,2,3,4,5,6,7,8,9,10,11,12").strip()
+    grades = data.get("grade_levels", "").strip()
+
+    if not grades:
+        grades = "K,1,2,3,4,5,6,7,8,9,10,11,12"
 
     if not name:
         return jsonify({"error": "School name is required"}), 400
 
-    if School.query.filter_by(name=name).first():
-        return jsonify({"error": "School already exists"}), 400
+    existing_school = School.query.filter_by(name=name).first()
+    if existing_school:
+        existing_school.grade_levels = grades
+        db.session.commit()
+        return jsonify({"message": f"Updated school '{name}' with grade levels: {grades}"})
 
     new_school = School(name=name, grade_levels=grades)
     db.session.add(new_school)
     db.session.commit()
-    return jsonify({"message": "School added successfully"})
+    return jsonify({"message": f"School '{name}' added successfully!"})
 
 # -------------------------------------------------------------
 # FILE UPLOAD ROUTE
@@ -433,7 +439,7 @@ def get_schools():
         schools = School.query.filter_by(id=user.school_id).all()
     else:
         schools = School.query.all()
-    return jsonify({"schools": [{"id": s.id, "name": s.name, "grade_levels": s.grade_levels.split(",")} for s in schools]})
+    return jsonify({"schools": [{"id": s.id, "name": s.name, "grade_levels": [g.strip() for g in s.grade_levels.split(",") if g.strip()]} for s in schools]})
 
 @app.route("/students", methods=["GET"])
 @login_required
@@ -482,7 +488,7 @@ def get_students():
         })
 
     school = School.query.get(school_id)
-    available_grades = school.grade_levels.split(",") if school else []
+    available_grades = [g.strip() for g in school.grade_levels.split(",") if g.strip()] if school else []
 
     return jsonify({
         "students": filtered,
