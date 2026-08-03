@@ -82,12 +82,9 @@
 
                 <!-- ACTION BUTTONS: UPLOAD & EXPORT -->
                 <div class="flex items-center space-x-3">
-                    <!-- EXPORT BUTTON -->
                     <button onclick="exportInterventions()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded text-sm transition flex items-center shadow-sm">
                         <i class="fa-solid fa-file-excel mr-2"></i> Export Interventions
                     </button>
-
-                    <!-- UPLOAD DATA BUTTON -->
                     <button onclick="document.getElementById('file-upload').click()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-4 py-2 rounded text-sm transition flex items-center shadow-sm">
                         <i class="fa-solid fa-cloud-arrow-up mr-2"></i> Upload Attendance File
                     </button>
@@ -185,9 +182,7 @@
 
             <div class="space-y-2">
                 <h4 class="text-xs font-semibold uppercase text-gray-500">Past History</h4>
-                <div id="intervention-history-list" class="max-h-48 overflow-y-auto divide-y divide-gray-100 text-xs">
-                    <!-- Dynamic logs inserted here -->
-                </div>
+                <div id="intervention-history-list" class="max-h-48 overflow-y-auto divide-y divide-gray-100 text-xs"></div>
             </div>
         </div>
     </div>
@@ -202,11 +197,11 @@
             
             <!-- CREATE SCHOOL FORM -->
             <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3">
-                <h4 class="font-semibold text-sm text-gray-800">Add New School</h4>
+                <h4 class="font-semibold text-sm text-gray-800">Add or Update School</h4>
                 <form onsubmit="handleAddSchool(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <input type="text" id="admin-school-name" placeholder="School Name" required class="border rounded px-3 py-1.5 text-sm">
-                    <input type="text" id="admin-school-grades" placeholder="Grades (e.g. 9,10,11,12)" value="K,1,2,3,4,5,6,7,8,9,10,11,12" class="border rounded px-3 py-1.5 text-sm">
-                    <button type="submit" class="bg-indigo-600 text-white rounded px-3 py-1.5 text-sm font-semibold hover:bg-indigo-700">Add School</button>
+                    <input type="text" id="admin-school-grades" placeholder="Grades (e.g. 6,7,8 or 9,10,11,12)" class="border rounded px-3 py-1.5 text-sm">
+                    <button type="submit" class="bg-indigo-600 text-white rounded px-3 py-1.5 text-sm font-semibold hover:bg-indigo-700">Save School</button>
                 </form>
             </div>
 
@@ -240,9 +235,7 @@
                                 <th class="p-2 text-right">Action</th>
                             </tr>
                         </thead>
-                        <tbody id="admin-users-tbody" class="divide-y divide-gray-200">
-                            <!-- Dynamic user rows inserted here -->
-                        </tbody>
+                        <tbody id="admin-users-tbody" class="divide-y divide-gray-200"></tbody>
                     </table>
                 </div>
             </div>
@@ -349,11 +342,12 @@
             const schoolId = document.getElementById("school-select").value;
             if (!schoolId) return;
 
-            const grade = document.getElementById("grade-select").value;
+            const gradeSelect = document.getElementById("grade-select");
+            const selectedGrade = gradeSelect.value;
             const chronic = document.getElementById("chronic-filter").checked;
             const search = document.getElementById("search-input").value;
 
-            const url = `/students?school_id=${schoolId}&grade=${encodeURIComponent(grade)}&chronic=${chronic}&search=${encodeURIComponent(search)}`;
+            const url = `/students?school_id=${schoolId}&grade=${encodeURIComponent(selectedGrade)}&chronic=${chronic}&search=${encodeURIComponent(search)}`;
             const res = await fetch(url);
             const data = await res.json();
 
@@ -361,14 +355,20 @@
             document.getElementById("stat-total-students").innerText = data.total_students;
             document.getElementById("stat-chronic-count").innerText = data.chronic_count;
 
-            // Update Grade Selector Options
-            const gradeSelect = document.getElementById("grade-select");
-            if (gradeSelect.options.length <= 1 && data.available_grades) {
+            // Dynamically rebuild Grade Dropdown options for the current school
+            gradeSelect.innerHTML = '<option value="">All Grades</option>';
+            if (data.available_grades && data.available_grades.length > 0) {
                 data.available_grades.forEach(g => {
-                    const opt = document.createElement("option");
-                    opt.value = g;
-                    opt.innerText = `Grade ${g}`;
-                    gradeSelect.appendChild(opt);
+                    const cleanGrade = String(g).trim();
+                    if (cleanGrade) {
+                        const opt = document.createElement("option");
+                        opt.value = cleanGrade;
+                        opt.innerText = `Grade ${cleanGrade}`;
+                        if (cleanGrade === selectedGrade) {
+                            opt.selected = true;
+                        }
+                        gradeSelect.appendChild(opt);
+                    }
                 });
             }
 
@@ -536,6 +536,7 @@
             alert(data.message || data.error);
             if (res.ok) {
                 document.getElementById("admin-school-name").value = "";
+                document.getElementById("admin-school-grades").value = "";
                 loadSchools();
             }
         }
