@@ -1,9 +1,9 @@
 import os
 import sqlite3
+import io
+import pandas as pd
 from flask import Flask, request, jsonify, render_template, session, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
-import pandas as pd
-import io
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "super-secret-key-change-this")
@@ -218,7 +218,7 @@ def get_students():
     })
 
 # -----------------------------------------------------------------------------
-# FILE UPLOAD (EXPLICIT MATCH FOR CurrentSchoolMembe)
+# FILE UPLOAD (NORMALIZED LINE ENDINGS + DYNAMIC CurrentSchoolMembe)
 # -----------------------------------------------------------------------------
 @app.route("/upload", methods=["POST"])
 def upload_file():
@@ -234,25 +234,26 @@ def upload_file():
     try:
         filename = file.filename.lower()
         if filename.endswith(".csv"):
-            df = pd.read_csv(file, dtype=str)
+            # Clean Carriage Return (\r\n and \r -> \n) so pandas reads all rows correctly
+            file_bytes = file.read().decode('utf-8-sig', errors='replace')
+            file_bytes = file_bytes.replace('\r\n', '\n').replace('\r', '\n')
+            df = pd.read_csv(io.StringIO(file_bytes), dtype=str, on_bad_lines='skip')
         elif filename.endswith((".xlsx", ".xls")):
             df = pd.read_excel(file, dtype=str)
         else:
             return jsonify({"error": "Unsupported file type. Upload CSV or Excel."}), 400
 
-        # Map header strings dynamically for resilience
+        # Normalize column header strings
         cols_cleaned = {c: str(c).strip().replace(" ", "").replace("_", "").lower() for c in df.columns}
 
-        # Dynamically locate columns by matching header patterns
+        # Locate column headers dynamically
         id_col = next((orig for orig, clean in cols_cleaned.items() if "studentnu" in clean or "studentid" in clean or clean == "id"), None)
         name_col = next((orig for orig, clean in cols_cleaned.items() if "studentna" in clean or "studentname" in clean or clean == "name"), None)
         grade_col = next((orig for orig, clean in cols_cleaned.items() if "grade" in clean), None)
         absent_col = next((orig for orig, clean in cols_cleaned.items() if "totalabse" in clean or "daysabse" in clean or "absent" in clean), None)
-        
-        # TARGET HEADER: CurrentSchoolMembe
         total_col = next((orig for orig, clean in cols_cleaned.items() if "currentschoolmembe" in clean or "schoolmembe" in clean or "membership" in clean), None)
 
-        # Positional index fallbacks if headers aren't detected
+        # Positional index fallbacks if headers cannot be matched
         if not id_col and len(df.columns) > 0: id_col = df.columns[0]
         if not name_col and len(df.columns) > 1: name_col = df.columns[1]
         if not grade_col and len(df.columns) > 2: grade_col = df.columns[2]
@@ -269,22 +270,23 @@ def upload_file():
             st_name = str(row[name_col]).strip() if pd.notna(row[name_col]) else ""
             st_grade = str(row[grade_col]).strip() if grade_col and pd.notna(row[grade_col]) else ""
 
-            if not st_id or st_id.lower() == "nan" or not st_name or st_name.lower() == "nan":
+            # Safely skip blank rows using continue
+            if not st_id or st_id.lower() in ["nan", "none", ""] or not st_name or st_name.lower() in ["nan", "none", ""]:
                 continue
 
-            # Parse Days Absent
+            # Parse Days Absent safely
             try:
                 days_absent = float(str(row[absent_col]).replace(",", "").strip()) if absent_col and pd.notna(row[absent_col]) else 0.0
             except (ValueError, TypeError):
                 days_absent = 0.0
 
-            # Parse Total Membership Days explicitly from CurrentSchoolMembe column
+            # Parse Total Membership Days explicitly from CurrentSchoolMembe
             try:
                 total_days = float(str(row[total_col]).replace(",", "").strip()) if total_col and pd.notna(row[total_col]) else 0.0
             except (ValueError, TypeError):
                 total_days = 0.0
 
-            # Compute attendance rate accurately using total membership days
+            # Calculate attendance rate
             if total_days > 0:
                 attendance_rate = round(((total_days - days_absent) / total_days) * 100, 1)
             else:
@@ -309,7 +311,7 @@ def upload_file():
         conn.commit()
         conn.close()
 
-        return jsonify({"message": f"Successfully processed {processed_count} student records using 'CurrentSchoolMembe'."})
+        return jsonify({"message": f"Successfully processed {processed_count} student records."})
 
     except Exception as e:
         return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
