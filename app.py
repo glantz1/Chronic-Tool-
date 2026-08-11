@@ -1,241 +1,123 @@
 import os
-import re
-import io
-import secrets
-import pandas as pd
+import sqlite3
 from flask import Flask, request, jsonify, render_template, session, send_file
-from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
-from functools import wraps
-from sqlalchemy import inspect, text
-
-# Security Extensions
-from flask_talisman import Talisman
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+import pandas as pd
+import io
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "super-secret-key-change-this")
+DATABASE = "attendance.db"
 
-# -------------------------------------------------------------
-# APPLICATION SECURITY & SESSION CONFIGURATION
-# -------------------------------------------------------------
-raw_secret = os.environ.get("SECRET_KEY")
-if not raw_secret or raw_secret == "super-secret-key-change-in-prod":
-    app.secret_key = secrets.token_hex(32)
-else:
-    app.secret_key = raw_secret
+# -----------------------------------------------------------------------------
+# DATABASE INITIALIZATION
+# -----------------------------------------------------------------------------
+def get_db():
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-app.config.update(
-    SESSION_COOKIE_HTTPONLY=True,       # Prevent JavaScript reading session cookies
-    SESSION_COOKIE_SAMESITE='Lax',      # CSRF mitigation
-    SESSION_COOKIE_SECURE=os.environ.get("FLASK_ENV") == "production"  # HTTPS only in production
-)
-
-# Apply Security Headers
-Talisman(app, content_security_policy=None, force_https=os.environ.get("FLASK_ENV") == "production")
-
-# Rate Limiter
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["200 per day", "50 per hour"],
-    storage_uri="memory://"
-)
-
-# -------------------------------------------------------------
-# DATABASE CONFIGURATION
-# -------------------------------------------------------------
-db_url = os.environ.get("DATABASE_URL", "sqlite:///attendance.db")
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
-
-app.config["SQLALCHEMY_DATABASE_URI"] = db_url
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
-db = SQLAlchemy(app)
-
-# -------------------------------------------------------------
-# HELPER PARSERS & CALCULATIONS
-# -------------------------------------------------------------
-def safe_float_convert(val, default=0.0):
-    """Safely extracts numbers from strings or returns default if non-numeric."""
-    if pd.isnull(val):
-        return default
-    try:
-        str_val = str(val).replace('%', '').replace(',', '').strip()
-        return float(str_val)
-    except (ValueError, TypeError):
-        match = re.search(r"[-+]?\d*\.\d+|\d+", str(val))
-        if match:
-            try:
-                return float(match.group())
-            except ValueError:
-                pass
-        return default
-
-def calculate_chronic_status(student, threshold=90.0):
-    """Calculates attendance rate and determines chronic absenteeism status (<90%)."""
-    # Use actual uploaded total_days (Total Membership Days) as denominator
-    day_rate = (student.days_absent / student.total_days * 100.0) if (student.total_days and student.total_days > 0) else 0.0
-    min_rate = (student.minutes_absent / student.total_minutes * 100.0) if (student.total_minutes and student.total_minutes > 0) else 0.0
+def init_db():
+    conn = get_db()
+    cursor = conn.cursor()
     
-    if student.present_fte3 >= 0.0:
-        attendance_rate = student.present_fte3
-        absence_rate = 100.0 - attendance_rate
-    else:
-        absence_rate = max(day_rate, min_rate)
-        attendance_rate = 100.0 - absence_rate
+    # Schools Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS schools (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL
+        )
+    ''')
 
-    is_chronic_fte3 = (student.present_fte3 >= 0.0 and student.present_fte3 < threshold)
-    is_chronic_days = day_rate >= (100.0 - threshold)
-    is_chronic_mins = min_rate >= (100.0 - threshold)
+    # Users Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'staff',
+            school_id INTEGER,
+            FOREIGN KEY (school_id) REFERENCES schools (id)
+        )
+    ''')
 
-    is_chronic = is_chronic_fte3 or is_chronic_days or is_chronic_mins
+    # Students Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS students (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            student_id TEXT NOT NULL,
+            student_name TEXT NOT NULL,
+            grade TEXT,
+            days_absent REAL DEFAULT 0,
+            total_days REAL DEFAULT 0,
+            attendance_rate REAL DEFAULT 100.0,
+            is_chronic INTEGER DEFAULT 0,
+            FOREIGN KEY (school_id) REFERENCES schools (id),
+            UNIQUE(school_id, student_id)
+        )
+    ''')
 
-    reason = "Regular"
-    if is_chronic:
-        if is_chronic_fte3 or attendance_rate < threshold:
-            reason = f"Attendance Rate ({attendance_rate:.1f}%) < {threshold:.0f}%"
-        elif is_chronic_days or is_chronic_mins:
-            reason = f"Absence Rate ({absence_rate:.1f}%) >= 10%"
+    # Interventions Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS interventions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            type TEXT NOT NULL,
+            notes TEXT,
+            logged_by TEXT,
+            FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
+        )
+    ''')
 
-    return {
-        "attendance_rate": round(attendance_rate, 1),
-        "absence_rate": round(absence_rate, 1),
-        "is_chronic": is_chronic,
-        "chronic_reason": reason
-    }
+    # Create default Admin if no users exist
+    cursor.execute("SELECT COUNT(*) FROM users")
+    if cursor.fetchone()[0] == 0:
+        admin_pass = generate_password_hash("admin123")
+        cursor.execute("INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
+                       ("admin@school.edu", admin_pass, "admin"))
 
-# -------------------------------------------------------------
-# DATABASE MODELS
-# -------------------------------------------------------------
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(256), nullable=False)
-    role = db.Column(db.String(20), default="staff")
-    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)
+    conn.commit()
+    conn.close()
 
-    school = db.relationship('School', backref='users', lazy=True)
+init_db()
 
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-
-class School(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), unique=True, nullable=False)
-
-class Student(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    school_id = db.Column(db.Integer, db.ForeignKey('school.id', ondelete="CASCADE"), nullable=False)
-    student_id_str = db.Column(db.String(50), nullable=False)
-    name = db.Column(db.String(100), nullable=False)
-    grade = db.Column(db.String(20), nullable=False)
-    days_absent = db.Column(db.Float, nullable=False, default=0)
-    total_days = db.Column(db.Float, nullable=False, default=1) # Stores Total Membership Days
-    minutes_absent = db.Column(db.Float, nullable=False, default=0)
-    total_minutes = db.Column(db.Float, nullable=False, default=0)
-    present_fte3 = db.Column(db.Float, nullable=False, default=-1.0)
-
-    interventions = db.relationship('Intervention', backref='student', cascade="all, delete-orphan", lazy=True)
-
-class Intervention(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    student_id = db.Column(db.Integer, db.ForeignKey('student.id', ondelete="CASCADE"), nullable=False)
-    date = db.Column(db.String(20), nullable=False)
-    action_type = db.Column(db.String(50), nullable=False)
-    notes = db.Column(db.Text, nullable=True)
-    logged_by = db.Column(db.String(120), nullable=True)
-
-# -------------------------------------------------------------
-# DB INITIALIZATION & MIGRATIONS
-# -------------------------------------------------------------
-with app.app_context():
-    db.create_all()
-
-    inspector = inspect(db.engine)
-    
-    if "user" in inspector.get_table_names():
-        columns = [col['name'] for col in inspector.get_columns('user')]
-        if 'school_id' not in columns:
-            with db.engine.connect() as conn:
-                conn.execute(text('ALTER TABLE "user" ADD COLUMN school_id INTEGER REFERENCES school(id);'))
-                conn.commit()
-
-    if "student" in inspector.get_table_names():
-        columns = [col['name'] for col in inspector.get_columns('student')]
-        with db.engine.connect() as conn:
-            if 'minutes_absent' not in columns:
-                conn.execute(text('ALTER TABLE student ADD COLUMN minutes_absent FLOAT DEFAULT 0;'))
-            if 'total_minutes' not in columns:
-                conn.execute(text('ALTER TABLE student ADD COLUMN total_minutes FLOAT DEFAULT 0;'))
-            if 'present_fte3' not in columns:
-                conn.execute(text('ALTER TABLE student ADD COLUMN present_fte3 FLOAT DEFAULT -1.0;'))
-            conn.commit()
-
-    if not User.query.filter_by(role="admin").first():
-        default_school = School.query.first()
-        if not default_school:
-            default_school = School(name="Main School")
-            db.session.add(default_school)
-            db.session.commit()
-
-        default_admin = User(email="admin@school.edu", role="admin", school_id=None)
-        default_admin.set_password("admin123")
-        db.session.add(default_admin)
-        db.session.commit()
-
-# -------------------------------------------------------------
-# AUTHENTICATION DECORATORS
-# -------------------------------------------------------------
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if "user_id" not in session:
-            return jsonify({"error": "Authentication required"}), 401
-        return f(*args, **kwargs)
-    return decorated_function
-
-def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if "user_id" not in session:
-            return jsonify({"error": "Authentication required"}), 401
-        user = User.query.get(session["user_id"])
-        if not user or user.role != "admin":
-            return jsonify({"error": "Admin access required"}), 403
-        return f(*args, **kwargs)
-    return decorated_function
-
-# -------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # AUTHENTICATION ROUTES
-# -------------------------------------------------------------
+# -----------------------------------------------------------------------------
 @app.route("/")
 def index():
     return render_template("index.html")
 
+@app.route("/me")
+def me():
+    if "user" in session:
+        return jsonify({"logged_in": True, "user": session["user"]})
+    return jsonify({"logged_in": False})
+
 @app.route("/login", methods=["POST"])
-@limiter.limit("5 per minute")
 def login():
     data = request.json or {}
-    email = data.get("email", "").strip().lower()
-    password = data.get("password", "")
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
 
-    user = User.query.filter_by(email=email).first()
-    if user and user.check_password(password):
-        session.clear()
-        session["user_id"] = user.id
-        session["email"] = user.email
-        session["role"] = user.role
-        session["school_id"] = user.school_id
-        return jsonify({
-            "message": "Logged in successfully", 
-            "user": {"email": user.email, "role": user.role, "school_id": user.school_id}
-        })
-    
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+    user = cursor.fetchone()
+    conn.close()
+
+    if user and check_password_hash(user["password_hash"], password):
+        user_data = {
+            "id": user["id"],
+            "email": user["email"],
+            "role": user["role"],
+            "school_id": user["school_id"]
+        }
+        session["user"] = user_data
+        return jsonify({"message": "Login successful", "user": user_data})
+
     return jsonify({"error": "Invalid email or password"}), 401
 
 @app.route("/logout", methods=["POST"])
@@ -243,363 +125,369 @@ def logout():
     session.clear()
     return jsonify({"message": "Logged out"})
 
-@app.route("/me", methods=["GET"])
-def me():
-    if "user_id" in session:
-        user = User.query.get(session["user_id"])
-        if user:
-            return jsonify({
-                "logged_in": True, 
-                "user": {"email": user.email, "role": user.role, "school_id": user.school_id}
-            })
-    return jsonify({"logged_in": False})
-
-# -------------------------------------------------------------
-# ADMIN MANAGEMENT ROUTES
-# -------------------------------------------------------------
-@app.route("/admin/users", methods=["GET", "POST"])
-@admin_required
-def manage_users():
-    if request.method == "POST":
-        data = request.json or {}
-        email = data.get("email", "").strip().lower()
-        password = data.get("password")
-        role = data.get("role", "staff")
-        school_id = data.get("school_id")
-
-        if not email or not password:
-            return jsonify({"error": "Email and password are required"}), 400
-
-        if role == "staff" and not school_id:
-            return jsonify({"error": "Staff members must be assigned to a specific school."}), 400
-
-        if User.query.filter_by(email=email).first():
-            return jsonify({"error": "User with this email already exists"}), 400
-
-        new_user = User(email=email, role=role, school_id=int(school_id) if school_id else None)
-        new_user.set_password(password)
-        db.session.add(new_user)
-        db.session.commit()
-        return jsonify({"message": f"User {email} created successfully!"})
-
-    users = User.query.all()
-    return jsonify({"users": [
-        {"id": u.id, "email": u.email, "role": u.role, "school_name": u.school.name if u.school else "All Schools"} 
-        for u in users
-    ]})
-
-@app.route("/admin/users/<int:user_id>", methods=["DELETE"])
-@admin_required
-def delete_user(user_id):
-    if session.get("user_id") == user_id:
-        return jsonify({"error": "You cannot delete your own account while logged in."}), 400
-
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"error": "User not found."}), 404
-
-    try:
-        db.session.delete(user)
-        db.session.commit()
-        return jsonify({"message": f"User '{user.email}' deleted successfully."})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": f"Failed to delete user: {str(e)}"}), 500
-
-@app.route("/admin/schools", methods=["POST"])
-@admin_required
-def add_school():
-    data = request.json or {}
-    name = data.get("name", "").strip()
-
-    if not name:
-        return jsonify({"error": "School name is required."}), 400
-
-    if School.query.filter_by(name=name).first():
-        return jsonify({"error": f"A school named '{name}' already exists."}), 400
-
-    new_school = School(name=name)
-    db.session.add(new_school)
-    db.session.commit()
-    return jsonify({"message": f"School '{name}' added successfully!"})
-
-@app.route("/admin/schools/<int:school_id>", methods=["DELETE"])
-@admin_required
-def delete_school(school_id):
-    school = School.query.get(school_id)
-    if not school:
-        return jsonify({"error": "School not found."}), 404
-
-    try:
-        User.query.filter_by(school_id=school_id).update({"school_id": None})
-        Student.query.filter_by(school_id=school_id).delete()
-        db.session.delete(school)
-        db.session.commit()
-        
-        return jsonify({"message": f"School '{school.name}' and its student data were successfully deleted."})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": f"Failed to delete school: {str(e)}"}), 500
-
-# -------------------------------------------------------------
-# FILE UPLOAD ROUTE
-# -------------------------------------------------------------
-@app.route("/upload", methods=["POST"])
-@login_required
-def upload_file():
-    user = User.query.get(session["user_id"])
-    school_id = request.form.get("school_id")
-    file = request.files.get("file")
-
-    if user.role != "admin" and str(user.school_id) != str(school_id):
-        return jsonify({"error": "Unauthorized: You do not have permissions to upload to this school."}), 403
-
-    if not school_id or not file:
-        return jsonify({"error": "School selection and file are required."}), 400
-
-    school = School.query.get(school_id)
-    if not school:
-        return jsonify({"error": "Invalid School ID selected."}), 400
-
-    try:
-        filename = file.filename.lower()
-        if filename.endswith(".csv"):
-            df = pd.read_csv(file)
-        elif filename.endswith((".xls", ".xlsx")):
-            all_sheets = pd.read_excel(file, sheet_name=None)
-            df = pd.concat(all_sheets.values(), ignore_index=True) if hasattr(pd, "concat") else pd.read_excel(file)
-        else:
-            return jsonify({"error": "Unsupported file format. Please upload a .csv or .xlsx file."}), 400
-
-        fte3_col = next(
-            (c for c in df.columns if str(c).strip().replace(" ", "").replace("_", "") == "PresentFTE3"), 
-            None
-        )
-        if not fte3_col and len(df.columns) > 21:
-            fte3_col = df.columns[21]
-
-        columns_lower = [str(c).strip().lower().replace(" ", "_").replace("-", "_") for c in df.columns]
-
-        id_col = next((df.columns[i] for i, c in enumerate(columns_lower) if "studentnu" in c or "student_id" in c or c == "id"), None)
-        name_col = next((df.columns[i] for i, c in enumerate(columns_lower) if "studentna" in c or "student_name" in c or c == "name"), None)
-        absent_col = next((df.columns[i] for i, c in enumerate(columns_lower) if "totalabse" in c or "days_absent" in c or "absent" in c), None)
-        grade_col = next((df.columns[i] for i, c in enumerate(columns_lower) if "grade" in c), None)
-        
-        # Priority mapping specifically looking for Total Membership Days
-        total_col = next((df.columns[i] for i, c in enumerate(columns_lower) if "total_membership" in c or "membership" in c or "total_days" in c or "enrolled" in c), None)
-
-        if not id_col or not name_col:
-            return jsonify({"error": "Missing required Student ID or Name columns."}), 400
-
-        df = df.dropna(subset=[id_col, name_col])
-
-        Student.query.filter_by(school_id=school_id).delete()
-
-        records = []
-        for _, row in df.iterrows():
-            id_str = str(row[id_col]).split('.')[0].strip()
-            name_str = str(row[name_col]).strip()
-
-            if not id_str or id_str.lower() == 'nan' or not name_str or name_str.lower() == 'nan':
-                continue
-
-            absent_val = safe_float_convert(row[absent_col] if absent_col else None, default=0.0)
-            
-            # Extract Total Membership Days accurately without overriding low values (e.g. 3 days)
-            total_val = safe_float_convert(row[total_col] if total_col else None, default=1.0)
-            if total_val <= 0:
-                total_val = 1.0  # Avoid division by zero
-
-            raw_fte3 = row[fte3_col] if fte3_col and fte3_col in row else None
-            fte3_val = safe_float_convert(raw_fte3, default=-1.0)
-
-            if 0.0 < fte3_val <= 1.0:
-                fte3_val = fte3_val * 100.0
-
-            if fte3_val >= 0.0 and absent_val == 0.0 and total_val > 0:
-                absent_val = total_val * ((100.0 - fte3_val) / 100.0)
-
-            grade_val = str(row[grade_col]).strip() if grade_col and pd.notnull(row[grade_col]) else "N/A"
-
-            student = Student(
-                school_id=school.id,
-                student_id_str=id_str,
-                name=name_str,
-                grade=grade_val,
-                days_absent=absent_val,
-                total_days=total_val,  # Correct Total Membership Days
-                present_fte3=fte3_val
-            )
-            records.append(student)
-
-        db.session.bulk_save_objects(records)
-        db.session.commit()
-
-        return jsonify({
-            "message": f"Successfully processed {len(records)} student records for {school.name}."
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": f"File parsing failed: {str(e)}"}), 500
-
-# -------------------------------------------------------------
-# STUDENT RETRIEVAL & INTERVENTIONS
-# -------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# SCHOOL & STUDENT DATA ROUTES
+# -----------------------------------------------------------------------------
 @app.route("/schools", methods=["GET"])
-@login_required
 def get_schools():
-    user = User.query.get(session["user_id"])
-    if user.role != "admin" and user.school_id:
-        schools = School.query.filter_by(id=user.school_id).all()
+    if "user" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    user = session["user"]
+
+    if user["role"] == "admin":
+        cursor.execute("SELECT * FROM schools ORDER BY name ASC")
     else:
-        schools = School.query.all()
-    return jsonify({"schools": [{"id": s.id, "name": s.name} for s in schools]})
+        cursor.execute("SELECT * FROM schools WHERE id = ?", (user["school_id"],))
+
+    schools = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify({"schools": schools})
 
 @app.route("/students", methods=["GET"])
-@login_required
 def get_students():
-    user = User.query.get(session["user_id"])
-    school_id = request.args.get("school_id")
+    if "user" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
 
-    if user.role != "admin" and str(user.school_id) != str(school_id):
-        return jsonify({"error": "Access denied"}), 403
+    school_id = request.args.get("school_id")
+    grade = request.args.get("grade", "").strip()
+    chronic_only = request.args.get("chronic") == "true"
+    search = request.args.get("search", "").strip()
 
     if not school_id:
         return jsonify({"students": [], "total_students": 0, "chronic_count": 0, "available_grades": []})
 
-    # Auto-detect all unique grades uploaded for this school
-    all_school_students = Student.query.filter_by(school_id=school_id).all()
-    available_grades = sorted(list(set(s.grade for s in all_school_students if s.grade and s.grade != "N/A")))
+    conn = get_db()
+    cursor = conn.cursor()
 
-    grade = request.args.get("grade")
-    chronic_only = request.args.get("chronic") == "true"
-    search = request.args.get("search", "").strip().lower()
+    cursor.execute("SELECT DISTINCT grade FROM students WHERE school_id = ? AND grade IS NOT NULL ORDER BY grade ASC", (school_id,))
+    available_grades = [r["grade"] for r in cursor.fetchall() if r["grade"]]
 
-    query = Student.query.filter_by(school_id=school_id)
+    query = """
+        SELECT s.*, COUNT(i.id) as interventions_count
+        FROM students s
+        LEFT JOIN interventions i ON s.id = i.student_id
+        WHERE s.school_id = ?
+    """
+    params = [school_id]
+
     if grade:
-        query = query.filter_by(grade=grade)
+        query += " AND s.grade = ?"
+        params.append(grade)
 
-    students = query.all()
-    filtered = []
+    if chronic_only:
+        query += " AND s.is_chronic = 1"
 
-    for s in students:
-        status_info = calculate_chronic_status(s)
+    if search:
+        query += " AND (s.student_name LIKE ? OR s.student_id LIKE ?)"
+        params.extend([f"%{search}%", f"%{search}%"])
 
-        if chronic_only and not status_info["is_chronic"]:
-            continue
+    query += " GROUP BY s.id ORDER BY s.student_name ASC"
 
-        if search and (search not in s.name.lower() and search not in s.student_id_str.lower()):
-            continue
+    cursor.execute(query, params)
+    students_rows = cursor.fetchall()
 
-        filtered.append({
-            "db_id": s.id,
-            "student_id": s.student_id_str,
-            "student_name": s.name,
-            "grade": s.grade,
-            "days_absent": round(s.days_absent, 2),
-            "total_days": s.total_days,  # Uploaded Total Membership Days
-            "absence_rate_pct": status_info["absence_rate"],
-            "attendance_rate_pct": status_info["attendance_rate"],
-            "is_chronic": status_info["is_chronic"],
-            "chronic_reason": status_info["chronic_reason"],
-            "interventions_count": len(s.interventions)
-        })
+    students = []
+    chronic_count = 0
+
+    for r in students_rows:
+        student = {
+            "db_id": r["id"],
+            "student_id": r["student_id"],
+            "student_name": r["student_name"],
+            "grade": r["grade"],
+            "days_absent": r["days_absent"],
+            "total_days": r["total_days"],
+            "attendance_rate_pct": r["attendance_rate"],
+            "is_chronic": bool(r["is_chronic"]),
+            "interventions_count": r["interventions_count"]
+        }
+        if student["is_chronic"]:
+            chronic_count += 1
+        students.append(student)
+
+    conn.close()
 
     return jsonify({
-        "students": filtered,
-        "total_students": len(filtered),
-        "chronic_count": sum(1 for s in filtered if s["is_chronic"]),
+        "students": students,
+        "total_students": len(students),
+        "chronic_count": chronic_count,
         "available_grades": available_grades
     })
 
+# -----------------------------------------------------------------------------
+# FILE UPLOAD (EXPLICIT MATCH FOR CurrentSchoolMembe)
+# -----------------------------------------------------------------------------
+@app.route("/upload", methods=["POST"])
+def upload_file():
+    if "user" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    school_id = request.form.get("school_id")
+    file = request.files.get("file")
+
+    if not school_id or not file:
+        return jsonify({"error": "Missing school ID or file"}), 400
+
+    try:
+        filename = file.filename.lower()
+        if filename.endswith(".csv"):
+            df = pd.read_csv(file, dtype=str)
+        elif filename.endswith((".xlsx", ".xls")):
+            df = pd.read_excel(file, dtype=str)
+        else:
+            return jsonify({"error": "Unsupported file type. Upload CSV or Excel."}), 400
+
+        # Map header strings dynamically for resilience
+        cols_cleaned = {c: str(c).strip().replace(" ", "").replace("_", "").lower() for c in df.columns}
+
+        # Dynamically locate columns by matching header patterns
+        id_col = next((orig for orig, clean in cols_cleaned.items() if "studentnu" in clean or "studentid" in clean or clean == "id"), None)
+        name_col = next((orig for orig, clean in cols_cleaned.items() if "studentna" in clean or "studentname" in clean or clean == "name"), None)
+        grade_col = next((orig for orig, clean in cols_cleaned.items() if "grade" in clean), None)
+        absent_col = next((orig for orig, clean in cols_cleaned.items() if "totalabse" in clean or "daysabse" in clean or "absent" in clean), None)
+        
+        # TARGET HEADER: CurrentSchoolMembe
+        total_col = next((orig for orig, clean in cols_cleaned.items() if "currentschoolmembe" in clean or "schoolmembe" in clean or "membership" in clean), None)
+
+        # Positional index fallbacks if headers aren't detected
+        if not id_col and len(df.columns) > 0: id_col = df.columns[0]
+        if not name_col and len(df.columns) > 1: name_col = df.columns[1]
+        if not grade_col and len(df.columns) > 2: grade_col = df.columns[2]
+        if not absent_col and len(df.columns) > 13: absent_col = df.columns[13]
+        if not total_col and len(df.columns) > 14: total_col = df.columns[14]
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        processed_count = 0
+
+        for _, row in df.iterrows():
+            st_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ""
+            st_name = str(row[name_col]).strip() if pd.notna(row[name_col]) else ""
+            st_grade = str(row[grade_col]).strip() if grade_col and pd.notna(row[grade_col]) else ""
+
+            if not st_id or st_id.lower() == "nan" or not st_name or st_name.lower() == "nan":
+                continue
+
+            # Parse Days Absent
+            try:
+                days_absent = float(str(row[absent_col]).replace(",", "").strip()) if absent_col and pd.notna(row[absent_col]) else 0.0
+            except (ValueError, TypeError):
+                days_absent = 0.0
+
+            # Parse Total Membership Days explicitly from CurrentSchoolMembe column
+            try:
+                total_days = float(str(row[total_col]).replace(",", "").strip()) if total_col and pd.notna(row[total_col]) else 0.0
+            except (ValueError, TypeError):
+                total_days = 0.0
+
+            # Compute attendance rate accurately using total membership days
+            if total_days > 0:
+                attendance_rate = round(((total_days - days_absent) / total_days) * 100, 1)
+            else:
+                attendance_rate = 100.0
+
+            is_chronic = 1 if attendance_rate < 90.0 else 0
+
+            cursor.execute("""
+                INSERT INTO students (school_id, student_id, student_name, grade, days_absent, total_days, attendance_rate, is_chronic)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(school_id, student_id) DO UPDATE SET
+                    student_name=excluded.student_name,
+                    grade=excluded.grade,
+                    days_absent=excluded.days_absent,
+                    total_days=excluded.total_days,
+                    attendance_rate=excluded.attendance_rate,
+                    is_chronic=excluded.is_chronic
+            """, (school_id, st_id, st_name, st_grade, days_absent, total_days, attendance_rate, is_chronic))
+
+            processed_count += 1
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({"message": f"Successfully processed {processed_count} student records using 'CurrentSchoolMembe'."})
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
+
+# -----------------------------------------------------------------------------
+# INTERVENTIONS & EXPORT
+# -----------------------------------------------------------------------------
 @app.route("/interventions", methods=["GET", "POST"])
-@login_required
 def handle_interventions():
+    if "user" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    if request.method == "GET":
+        student_db_id = request.args.get("student_db_id")
+        cursor.execute("SELECT * FROM interventions WHERE student_id = ? ORDER BY date DESC", (student_db_id,))
+        logs = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify({"interventions": logs})
+
     if request.method == "POST":
         data = request.json or {}
         student_db_id = data.get("student_db_id")
-        date = data.get("date")
-        action_type = data.get("type")
+        date_str = data.get("date")
+        int_type = data.get("type")
         notes = data.get("notes")
+        logged_by = session["user"]["email"]
 
-        if not student_db_id or not action_type:
-            return jsonify({"error": "Missing parameters"}), 400
+        cursor.execute("""
+            INSERT INTO interventions (student_id, date, type, notes, logged_by)
+            VALUES (?, ?, ?, ?, ?)
+        """, (student_db_id, date_str, int_type, notes, logged_by))
 
-        intervention = Intervention(
-            student_id=student_db_id,
-            date=date,
-            action_type=action_type,
-            notes=notes,
-            logged_by=session.get("email")
-        )
-        db.session.add(intervention)
-        db.session.commit()
-        return jsonify({"message": "Intervention saved successfully"})
+        conn.commit()
+        conn.close()
+        return jsonify({"message": "Intervention logged successfully"})
 
-    student_db_id = request.args.get("student_db_id")
-    interventions = Intervention.query.filter_by(student_id=student_db_id).order_by(Intervention.id.desc()).all()
-    return jsonify({
-        "interventions": [{
-            "id": i.id,
-            "date": i.date,
-            "type": i.action_type,
-            "notes": i.notes,
-            "logged_by": i.logged_by
-        } for i in interventions]
-    })
-
-# -------------------------------------------------------------
-# INTERVENTION EXPORT ROUTE (EXCEL / CSV)
-# -------------------------------------------------------------
 @app.route("/export/interventions", methods=["GET"])
-@login_required
 def export_interventions():
-    user = User.query.get(session["user_id"])
+    if "user" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
     school_id = request.args.get("school_id")
-
-    if user.role != "admin" and str(user.school_id) != str(school_id):
-        return jsonify({"error": "Unauthorized access to this school's records."}), 403
-
     if not school_id:
-        return jsonify({"error": "School ID is required."}), 400
+        return jsonify({"error": "School ID required"}), 400
 
-    students = Student.query.filter_by(school_id=school_id).all()
-    
+    conn = get_db()
+    cursor = conn.cursor()
+
+    query = """
+        SELECT s.student_id, s.student_name, s.grade, s.days_absent, s.total_days, s.attendance_rate,
+               i.date as intervention_date, i.type as intervention_type, i.notes, i.logged_by
+        FROM students s
+        LEFT JOIN interventions i ON s.id = i.student_id
+        WHERE s.school_id = ?
+        ORDER BY s.student_name ASC, i.date DESC
+    """
+    cursor.execute(query, (school_id,))
+    rows = cursor.fetchall()
+    conn.close()
+
     export_data = []
-    for student in students:
-        for intervention in student.interventions:
-            export_data.append({
-                "Student ID": student.student_id_str,
-                "Student Name": student.name,
-                "Grade": student.grade,
-                "Intervention Date": intervention.date,
-                "Action Type": intervention.action_type,
-                "Notes": intervention.notes or "",
-                "Logged By": intervention.logged_by or "System"
-            })
-
-    if not export_data:
-        return jsonify({"error": "No intervention logs found for this school."}), 404
+    for r in rows:
+        export_data.append({
+            "Student ID": r["student_id"],
+            "Student Name": r["student_name"],
+            "Grade": r["grade"],
+            "Days Absent": r["days_absent"],
+            "Total Membership Days": r["total_days"],
+            "Attendance Rate (%)": r["attendance_rate"],
+            "Intervention Date": r["intervention_date"] or "N/A",
+            "Intervention Type": r["intervention_type"] or "None",
+            "Notes": r["notes"] or "",
+            "Logged By": r["logged_by"] or ""
+        })
 
     df = pd.DataFrame(export_data)
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Intervention Logs')
+        df.to_excel(writer, index=False, sheet_name='Interventions')
     output.seek(0)
-
-    school = School.query.get(school_id)
-    school_name_clean = school.name.replace(" ", "_") if school else f"School_{school_id}"
 
     return send_file(
         output,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True,
-        download_name=f"Intervention_Logs_{school_name_clean}.xlsx"
+        download_name=f'attendance_interventions_school_{school_id}.xlsx'
     )
 
-# -------------------------------------------------------------
-# APPLICATION ENTRYPOINT
-# -------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# ADMIN MANAGEMENT
+# -----------------------------------------------------------------------------
+@app.route("/admin/schools", methods=["POST"])
+def add_school():
+    if "user" not in session or session["user"]["role"] != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
+
+    name = (request.json or {}).get("name", "").strip()
+    if not name:
+        return jsonify({"error": "School name required"}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO schools (name) VALUES (?)", (name,))
+        conn.commit()
+        return jsonify({"message": "School added successfully"})
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "School name already exists"}), 400
+    finally:
+        conn.close()
+
+@app.route("/admin/schools/<int:school_id>", methods=["DELETE"])
+def delete_school(school_id):
+    if "user" not in session or session["user"]["role"] != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM schools WHERE id = ?", (school_id,))
+    cursor.execute("DELETE FROM students WHERE school_id = ?", (school_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "School and associated data deleted successfully"})
+
+@app.route("/admin/users", methods=["GET", "POST"])
+def admin_users():
+    if "user" not in session or session["user"]["role"] != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    if request.method == "GET":
+        cursor.execute("""
+            SELECT u.id, u.email, u.role, s.name as school_name
+            FROM users u
+            LEFT JOIN schools s ON u.school_id = s.id
+            ORDER BY u.email ASC
+        """)
+        users = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({"users": users})
+
+    if request.method == "POST":
+        data = request.json or {}
+        email = data.get("email", "").strip()
+        password = data.get("password", "").strip()
+        role = data.get("role", "staff")
+        school_id = data.get("school_id") or None
+
+        if not email or not password:
+            return jsonify({"error": "Email and password required"}), 400
+
+        try:
+            pw_hash = generate_password_hash(password)
+            cursor.execute("INSERT INTO users (email, password_hash, role, school_id) VALUES (?, ?, ?, ?)",
+                           (email, pw_hash, role, school_id))
+            conn.commit()
+            return jsonify({"message": "User created successfully"})
+        except sqlite3.IntegrityError:
+            return jsonify({"error": "User email already exists"}), 400
+        finally:
+            conn.close()
+
+@app.route("/admin/users/<int:user_id>", methods=["DELETE"])
+def delete_user(user_id):
+    if "user" not in session or session["user"]["role"] != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "User deleted successfully"})
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
