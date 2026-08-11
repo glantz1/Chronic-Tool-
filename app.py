@@ -21,7 +21,6 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
     
-    # Schools Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS schools (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,7 +28,6 @@ def init_db():
         )
     ''')
 
-    # Users Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +39,6 @@ def init_db():
         )
     ''')
 
-    # Students Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,7 +55,6 @@ def init_db():
         )
     ''')
 
-    # Interventions Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS interventions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,7 +67,6 @@ def init_db():
         )
     ''')
 
-    # Create default Admin if no users exist
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
         admin_pass = generate_password_hash("admin123")
@@ -218,7 +213,7 @@ def get_students():
     })
 
 # -----------------------------------------------------------------------------
-# FILE UPLOAD (NORMALIZED LINE ENDINGS + DYNAMIC CurrentSchoolMembe)
+# ADVANCED CSV UPLOADER WITH AUTOMATIC HEADER DETECT & LOGGING
 # -----------------------------------------------------------------------------
 @app.route("/upload", methods=["POST"])
 def upload_file():
@@ -233,20 +228,47 @@ def upload_file():
 
     try:
         filename = file.filename.lower()
+        
         if filename.endswith(".csv"):
-            # Clean Carriage Return (\r\n and \r -> \n) so pandas reads all rows correctly
-            file_bytes = file.read().decode('utf-8-sig', errors='replace')
-            file_bytes = file_bytes.replace('\r\n', '\n').replace('\r', '\n')
-            df = pd.read_csv(io.StringIO(file_bytes), dtype=str, on_bad_lines='skip')
+            raw_bytes = file.read()
+            # Support UTF-16, UTF-8, or CP1252 (Excel default export)
+            for encoding in ['utf-8-sig', 'utf-16', 'cp1252', 'latin1']:
+                try:
+                    text = raw_bytes.decode(encoding)
+                    break
+                except (UnicodeDecodeError, Exception):
+                    text = None
+            
+            if not text:
+                text = raw_bytes.decode('utf-8', errors='replace')
+
+            # Standardize line endings (\r\n and \r -> \n)
+            text = text.replace('\r\n', '\n').replace('\r', '\n')
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+
+            # Auto-locate header row by looking for key terms
+            header_idx = 0
+            for idx, line in enumerate(lines[:20]):  # check first 20 lines
+                lower_line = line.lower()
+                if "student" in lower_line or "id" in lower_line or "membe" in lower_line:
+                    header_idx = idx
+                    break
+
+            clean_csv_text = "\n".join(lines[header_idx:])
+            df = pd.read_csv(io.StringIO(clean_csv_text), dtype=str, on_bad_lines='skip')
+
         elif filename.endswith((".xlsx", ".xls")):
             df = pd.read_excel(file, dtype=str)
         else:
             return jsonify({"error": "Unsupported file type. Upload CSV or Excel."}), 400
 
-        # Normalize column header strings
+        print(f"--- DEBUG UPLOAD ---")
+        print(f"Total Rows Loaded in DataFrame: {len(df)}")
+        print(f"Detected Headers: {list(df.columns)}")
+
+        # Normalize column names for flexible matching
         cols_cleaned = {c: str(c).strip().replace(" ", "").replace("_", "").lower() for c in df.columns}
 
-        # Locate column headers dynamically
         id_col = next((orig for orig, clean in cols_cleaned.items() if "studentnu" in clean or "studentid" in clean or clean == "id"), None)
         name_col = next((orig for orig, clean in cols_cleaned.items() if "studentna" in clean or "studentname" in clean or clean == "name"), None)
         grade_col = next((orig for orig, clean in cols_cleaned.items() if "grade" in clean), None)
@@ -260,33 +282,34 @@ def upload_file():
         if not absent_col and len(df.columns) > 13: absent_col = df.columns[13]
         if not total_col and len(df.columns) > 14: total_col = df.columns[14]
 
+        print(f"Mapped Columns -> ID: {id_col} | Name: {name_col} | Total Days: {total_col}")
+
         conn = get_db()
         cursor = conn.cursor()
 
         processed_count = 0
+        skipped_count = 0
 
-        for _, row in df.iterrows():
+        for idx, row in df.iterrows():
             st_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ""
             st_name = str(row[name_col]).strip() if pd.notna(row[name_col]) else ""
             st_grade = str(row[grade_col]).strip() if grade_col and pd.notna(row[grade_col]) else ""
 
-            # Safely skip blank rows using continue
-            if not st_id or st_id.lower() in ["nan", "none", ""] or not st_name or st_name.lower() in ["nan", "none", ""]:
+            # Check for empty/nan records
+            if not st_id or st_id.lower() in ["nan", "none", "null", ""] or not st_name or st_name.lower() in ["nan", "none", "null", ""]:
+                skipped_count += 1
                 continue
 
-            # Parse Days Absent safely
             try:
                 days_absent = float(str(row[absent_col]).replace(",", "").strip()) if absent_col and pd.notna(row[absent_col]) else 0.0
             except (ValueError, TypeError):
                 days_absent = 0.0
 
-            # Parse Total Membership Days explicitly from CurrentSchoolMembe
             try:
                 total_days = float(str(row[total_col]).replace(",", "").strip()) if total_col and pd.notna(row[total_col]) else 0.0
             except (ValueError, TypeError):
                 total_days = 0.0
 
-            # Calculate attendance rate
             if total_days > 0:
                 attendance_rate = round(((total_days - days_absent) / total_days) * 100, 1)
             else:
@@ -311,9 +334,13 @@ def upload_file():
         conn.commit()
         conn.close()
 
-        return jsonify({"message": f"Successfully processed {processed_count} student records."})
+        print(f"--- UPLOAD COMPLETE ---")
+        print(f"Processed: {processed_count} | Skipped: {skipped_count}")
+
+        return jsonify({"message": f"Successfully imported {processed_count} student records (Skipped {skipped_count} invalid rows)."})
 
     except Exception as e:
+        print(f"UPLOAD ERROR: {str(e)}")
         return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
 
 # -----------------------------------------------------------------------------
