@@ -213,7 +213,7 @@ def get_students():
     })
 
 # -----------------------------------------------------------------------------
-# ADVANCED CSV UPLOADER WITH AUTOMATIC HEADER DETECT & LOGGING
+# FILE UPLOAD (EXACT COLUMN TARGETING FOR StudentNumber & CurrentSchoolMembe)
 # -----------------------------------------------------------------------------
 @app.route("/upload", methods=["POST"])
 def upload_file():
@@ -228,61 +228,43 @@ def upload_file():
 
     try:
         filename = file.filename.lower()
-        
         if filename.endswith(".csv"):
             raw_bytes = file.read()
-            # Support UTF-16, UTF-8, or CP1252 (Excel default export)
             for encoding in ['utf-8-sig', 'utf-16', 'cp1252', 'latin1']:
                 try:
                     text = raw_bytes.decode(encoding)
                     break
-                except (UnicodeDecodeError, Exception):
+                except Exception:
                     text = None
-            
             if not text:
                 text = raw_bytes.decode('utf-8', errors='replace')
 
-            # Standardize line endings (\r\n and \r -> \n)
             text = text.replace('\r\n', '\n').replace('\r', '\n')
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
-
-            # Auto-locate header row by looking for key terms
-            header_idx = 0
-            for idx, line in enumerate(lines[:20]):  # check first 20 lines
-                lower_line = line.lower()
-                if "student" in lower_line or "id" in lower_line or "membe" in lower_line:
-                    header_idx = idx
-                    break
-
-            clean_csv_text = "\n".join(lines[header_idx:])
-            df = pd.read_csv(io.StringIO(clean_csv_text), dtype=str, on_bad_lines='skip')
-
+            df = pd.read_csv(io.StringIO(text), dtype=str, on_bad_lines='skip')
         elif filename.endswith((".xlsx", ".xls")):
             df = pd.read_excel(file, dtype=str)
         else:
             return jsonify({"error": "Unsupported file type. Upload CSV or Excel."}), 400
 
-        print(f"--- DEBUG UPLOAD ---")
-        print(f"Total Rows Loaded in DataFrame: {len(df)}")
-        print(f"Detected Headers: {list(df.columns)}")
+        # Target EXACT columns (bypassing metadata columns like StudentNumber1)
+        id_col = next((c for c in df.columns if c == "StudentNumber"), None)
+        if not id_col:
+            id_col = next((c for c in df.columns if "studentnumber" in c.lower() and not c.lower().endswith("1")), None)
 
-        # Normalize column names for flexible matching
-        cols_cleaned = {c: str(c).strip().replace(" ", "").replace("_", "").lower() for c in df.columns}
+        name_col = next((c for c in df.columns if c.lower() == "studentname"), None)
+        if not name_col:
+            name_col = next((c for c in df.columns if "student" in c.lower() and "name" in c.lower()), None)
 
-        id_col = next((orig for orig, clean in cols_cleaned.items() if "studentnu" in clean or "studentid" in clean or clean == "id"), None)
-        name_col = next((orig for orig, clean in cols_cleaned.items() if "studentna" in clean or "studentname" in clean or clean == "name"), None)
-        grade_col = next((orig for orig, clean in cols_cleaned.items() if "grade" in clean), None)
-        absent_col = next((orig for orig, clean in cols_cleaned.items() if "totalabse" in clean or "daysabse" in clean or "absent" in clean), None)
-        total_col = next((orig for orig, clean in cols_cleaned.items() if "currentschoolmembe" in clean or "schoolmembe" in clean or "membership" in clean), None)
+        grade_col = next((c for c in df.columns if c.lower() == "grade"), None)
+        absent_col = next((c for c in df.columns if "currentschoolabsences" in c.lower() or "absences" in c.lower()), None)
+        total_col = next((c for c in df.columns if "currentschoolmembershipdays" in c.lower() or "membership" in c.lower()), None)
 
-        # Positional index fallbacks if headers cannot be matched
-        if not id_col and len(df.columns) > 0: id_col = df.columns[0]
-        if not name_col and len(df.columns) > 1: name_col = df.columns[1]
-        if not grade_col and len(df.columns) > 2: grade_col = df.columns[2]
-        if not absent_col and len(df.columns) > 13: absent_col = df.columns[13]
+        # Fallbacks if exact headers miss
+        if not id_col and len(df.columns) > 5: id_col = df.columns[5]
+        if not name_col and len(df.columns) > 6: name_col = df.columns[6]
+        if not grade_col and len(df.columns) > 7: grade_col = df.columns[7]
+        if not absent_col and len(df.columns) > 11: absent_col = df.columns[11]
         if not total_col and len(df.columns) > 14: total_col = df.columns[14]
-
-        print(f"Mapped Columns -> ID: {id_col} | Name: {name_col} | Total Days: {total_col}")
 
         conn = get_db()
         cursor = conn.cursor()
@@ -290,12 +272,11 @@ def upload_file():
         processed_count = 0
         skipped_count = 0
 
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
             st_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ""
             st_name = str(row[name_col]).strip() if pd.notna(row[name_col]) else ""
             st_grade = str(row[grade_col]).strip() if grade_col and pd.notna(row[grade_col]) else ""
 
-            # Check for empty/nan records
             if not st_id or st_id.lower() in ["nan", "none", "null", ""] or not st_name or st_name.lower() in ["nan", "none", "null", ""]:
                 skipped_count += 1
                 continue
@@ -334,13 +315,9 @@ def upload_file():
         conn.commit()
         conn.close()
 
-        print(f"--- UPLOAD COMPLETE ---")
-        print(f"Processed: {processed_count} | Skipped: {skipped_count}")
-
-        return jsonify({"message": f"Successfully imported {processed_count} student records (Skipped {skipped_count} invalid rows)."})
+        return jsonify({"message": f"Successfully imported {processed_count} student records."})
 
     except Exception as e:
-        print(f"UPLOAD ERROR: {str(e)}")
         return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
 
 # -----------------------------------------------------------------------------
