@@ -75,6 +75,7 @@ def safe_float_convert(val, default=0.0):
 
 def calculate_chronic_status(student, threshold=90.0):
     """Calculates attendance rate and determines chronic absenteeism status (<90%)."""
+    # Use actual uploaded total_days (Total Membership Days) as denominator
     day_rate = (student.days_absent / student.total_days * 100.0) if (student.total_days and student.total_days > 0) else 0.0
     min_rate = (student.minutes_absent / student.total_minutes * 100.0) if (student.total_minutes and student.total_minutes > 0) else 0.0
     
@@ -134,7 +135,7 @@ class Student(db.Model):
     name = db.Column(db.String(100), nullable=False)
     grade = db.Column(db.String(20), nullable=False)
     days_absent = db.Column(db.Float, nullable=False, default=0)
-    total_days = db.Column(db.Float, nullable=False, default=180)
+    total_days = db.Column(db.Float, nullable=False, default=1) # Stores Total Membership Days
     minutes_absent = db.Column(db.Float, nullable=False, default=0)
     total_minutes = db.Column(db.Float, nullable=False, default=0)
     present_fte3 = db.Column(db.Float, nullable=False, default=-1.0)
@@ -383,7 +384,9 @@ def upload_file():
         name_col = next((df.columns[i] for i, c in enumerate(columns_lower) if "studentna" in c or "student_name" in c or c == "name"), None)
         absent_col = next((df.columns[i] for i, c in enumerate(columns_lower) if "totalabse" in c or "days_absent" in c or "absent" in c), None)
         grade_col = next((df.columns[i] for i, c in enumerate(columns_lower) if "grade" in c), None)
-        total_col = next((df.columns[i] for i, c in enumerate(columns_lower) if ("total_mem" in c or "membership" in c or "total_days" in c or "enrolled" in c) and "year" not in c and "date" not in c and "min" not in c), None)
+        
+        # Priority mapping specifically looking for Total Membership Days
+        total_col = next((df.columns[i] for i, c in enumerate(columns_lower) if "total_membership" in c or "membership" in c or "total_days" in c or "enrolled" in c), None)
 
         if not id_col or not name_col:
             return jsonify({"error": "Missing required Student ID or Name columns."}), 400
@@ -401,9 +404,11 @@ def upload_file():
                 continue
 
             absent_val = safe_float_convert(row[absent_col] if absent_col else None, default=0.0)
-            total_val = safe_float_convert(row[total_col] if total_col else None, default=180.0)
-            if total_val > 300 or total_val <= 0:
-                total_val = 180.0
+            
+            # Extract Total Membership Days accurately without overriding low values (e.g. 3 days)
+            total_val = safe_float_convert(row[total_col] if total_col else None, default=1.0)
+            if total_val <= 0:
+                total_val = 1.0  # Avoid division by zero
 
             raw_fte3 = row[fte3_col] if fte3_col and fte3_col in row else None
             fte3_val = safe_float_convert(raw_fte3, default=-1.0)
@@ -422,7 +427,7 @@ def upload_file():
                 name=name_str,
                 grade=grade_val,
                 days_absent=absent_val,
-                total_days=total_val,
+                total_days=total_val,  # Correct Total Membership Days
                 present_fte3=fte3_val
             )
             records.append(student)
@@ -493,7 +498,7 @@ def get_students():
             "student_name": s.name,
             "grade": s.grade,
             "days_absent": round(s.days_absent, 2),
-            "total_days": s.total_days,
+            "total_days": s.total_days,  # Uploaded Total Membership Days
             "absence_rate_pct": status_info["absence_rate"],
             "attendance_rate_pct": status_info["attendance_rate"],
             "is_chronic": status_info["is_chronic"],
