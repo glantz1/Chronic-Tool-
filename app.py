@@ -100,7 +100,7 @@ class Student(db.Model):
 
     @property
     def is_chronic(self):
-        # 10% or more of total days missed = Chronically Absent
+        # 10% or more of total school days missed = Chronically Absent
         if not self.total_days or self.total_days <= 0:
             return False
         return (self.days_absent / self.total_days) >= 0.10
@@ -307,8 +307,11 @@ def upload_data():
         # Standardize headers to lowercase stripped strings
         df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 
-        # Target mapping for PowerSchool/BI Attendance Detail headers
-        id_col = next((c for c in df.columns if c in ['studentnumber', 'student_number', 'student_id', 'id'] or 'studentnumber' in c), None)
+        # Explicitly map Student Number and exclude School Number
+        id_col = next((c for c in df.columns if c in ['studentnumber', 'student_number', 'student_id', 'studentnumber1'] or 'studentnumber' in c), None)
+        if not id_col:
+            id_col = next((c for c in df.columns if ('id' in c or 'number' in c) and 'school' not in c), None)
+
         name_col = next((c for c in df.columns if c in ['studentname', 'student_name', 'name'] or 'studentname' in c), None)
         grade_col = next((c for c in df.columns if 'grade' in c), None)
         absent_col = next((c for c in df.columns if c in ['currentschoolabsences7', 'totalabsenceindistrict_hdwd10'] or 'absent' in c or 'absences' in c), None)
