@@ -298,13 +298,19 @@ def upload_data():
         else:
             return jsonify({'error': 'Unsupported file format'}), 400
 
+        # Clean column names for flexible matching
         df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 
-        id_col = next((c for c in df.columns if 'id' in c), None)
-        name_col = next((c for c in df.columns if 'name' in c), None)
+        # Explicit lookup for PowerSchool/BI Attendance Detail export headers
+        id_col = next((c for c in df.columns if c in ['studentnumber', 'student_number', 'student_id', 'id'] or 'studentnumber' in c), None)
+        name_col = next((c for c in df.columns if c in ['studentname', 'student_name', 'name'] or 'studentname' in c), None)
         grade_col = next((c for c in df.columns if 'grade' in c), None)
-        absent_col = next((c for c in df.columns if 'absent' in c), None)
-        total_col = next((c for c in df.columns if 'total' in c or 'membership' in c), None)
+        
+        # Absence columns match
+        absent_col = next((c for c in df.columns if c in ['currentschoolabsences7', 'totalabsenceindistrict_hdwd10'] or 'absent' in c or 'absences' in c), None)
+        
+        # Total membership/days columns match
+        total_col = next((c for c in df.columns if c in ['currentschoolmembershipdays11', 'totalmembershipdaysindistrict10'] or 'membership' in c or 'total_days' in c), None)
 
         if not all([id_col, name_col, grade_col, absent_col, total_col]):
             return jsonify({'error': 'Missing required columns (ID, Name, Grade, Absent Days, Total Days)'}), 400
@@ -319,8 +325,8 @@ def upload_data():
 
             student.student_name = str(row[name_col]).strip()
             student.grade = str(row[grade_col]).strip()
-            student.days_absent = float(row[absent_col])
-            student.total_days = float(row[total_col])
+            student.days_absent = float(row[absent_col]) if pd.notnull(row[absent_col]) else 0.0
+            student.total_days = float(row[total_col]) if pd.notnull(row[total_col]) else 1.0
             count += 1
 
         db.session.commit()
@@ -475,15 +481,13 @@ def delete_user(user_id):
 # INITIALIZATION & GLOBAL STARTUP
 # ------------------------------------------------------------------------------
 with app.app_context():
-    # Force drop old tables to fix missing PostgreSQL schema columns on Render
-    db.drop_all()
+    # Automatically sync DB schema on app boot without deleting persistent records
     db.create_all()
     if not User.query.filter_by(role='admin').first():
         admin = User(email='admin@school.org', role='admin')
         admin.set_password('AdminPass123!')
         db.session.add(admin)
         db.session.commit()
-        print("Default admin account created: admin@school.org / AdminPass123!")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
