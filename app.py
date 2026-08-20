@@ -472,10 +472,10 @@ def delete_user(user_id):
     return jsonify({'message': 'User deleted successfully'})
 
 # ------------------------------------------------------------------------------
-# INITIALIZATION & CLI SETUP
+# INITIALIZATION & GLOBAL STARTUP
 # ------------------------------------------------------------------------------
-def init_db():
-    # Force drop old database tables to resolve schema mismatches on Render
+with app.app_context():
+    # Force drop old tables to fix missing PostgreSQL schema columns on Render
     db.drop_all()
     db.create_all()
     if not User.query.filter_by(role='admin').first():
@@ -486,6 +486,4 @@ def init_db():
         print("Default admin account created: admin@school.org / AdminPass123!")
 
 if __name__ == '__main__':
-    with app.app_context():
-        init_db()
     app.run(host='0.0.0.0', port=5000, debug=True)
