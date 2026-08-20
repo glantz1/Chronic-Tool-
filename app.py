@@ -136,9 +136,7 @@ def admin_required(f):
 # ------------------------------------------------------------------------------
 @app.route('/')
 def index():
-    with open('index.html', 'r', encoding='utf-8') if os.path.exists('index.html') else io.StringIO('<h1>App Running</h1>') as f:
-        content = f.read()
-    return render_template_string(content)
+    return render_template('index.html')
 
 @app.route('/login', methods=['POST'])
 @limiter.limit("5 per minute")
@@ -251,7 +249,7 @@ def get_students():
             'interventions_count': len(s.interventions)
         })
 
-    # Enhanced sorting logic for all interactive headers
+    # Enhanced sorting logic for interactive table headers
     if sort_by == 'absences_desc':
         result.sort(key=lambda x: x['days_absent'], reverse=True)
     elif sort_by == 'absences_asc':
