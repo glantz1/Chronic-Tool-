@@ -71,6 +71,15 @@
                             <option value="">All Grades</option>
                         </select>
                     </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-gray-500 mb-1">Sort By</label>
+                        <select id="sort-select" onchange="loadStudents()" class="border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-indigo-500">
+                            <option value="absences_desc">Most Absences</option>
+                            <option value="absences_asc">Least Absences</option>
+                            <option value="rate_asc">Lowest Attendance Rate</option>
+                            <option value="name_asc">Name (A-Z)</option>
+                        </select>
+                    </div>
                     <div class="flex items-center mt-5">
                         <label class="inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="chronic-filter" onchange="loadStudents()" class="sr-only peer">
@@ -164,6 +173,7 @@
                         <label class="block text-xs font-semibold text-gray-600 mb-1">Action Type</label>
                         <select id="int-type" required class="w-full border rounded px-2 py-1.5 text-sm bg-white">
                             <option value="Phone Call">Phone Call</option>
+                            <option value="Student Conference">Student Conference</option>
                             <option value="Parent Conference">Parent Conference</option>
                             <option value="Home Visit">Home Visit</option>
                             <option value="Attendance Contract">Attendance Contract</option>
@@ -369,8 +379,9 @@
             const selectedGrade = gradeSelect.value;
             const chronic = document.getElementById("chronic-filter").checked;
             const search = document.getElementById("search-input").value;
+            const sortBy = document.getElementById("sort-select").value;
 
-            const url = `/students?school_id=${schoolId}&grade=${encodeURIComponent(selectedGrade)}&chronic=${chronic}&search=${encodeURIComponent(search)}`;
+            const url = `/students?school_id=${schoolId}&grade=${encodeURIComponent(selectedGrade)}&chronic=${chronic}&search=${encodeURIComponent(search)}&sort=${sortBy}`;
             const res = await fetch(url);
             const data = await res.json();
 
@@ -378,7 +389,7 @@
             document.getElementById("stat-total-students").innerText = data.total_students;
             document.getElementById("stat-chronic-count").innerText = data.chronic_count;
 
-            // Dynamically rebuild Grade Dropdown options based on actual uploaded students
+            // Dynamically rebuild Grade Dropdown options
             gradeSelect.innerHTML = '<option value="">All Grades</option>';
             if (data.available_grades && data.available_grades.length > 0) {
                 data.available_grades.forEach(g => {
@@ -412,7 +423,6 @@
                     ? "bg-red-100 text-red-800 border-red-200" 
                     : "bg-emerald-100 text-emerald-800 border-emerald-200";
 
-                // Displays Days Absent / Total Membership Days directly from uploaded file
                 tr.innerHTML = `
                     <td class="py-3 px-4 font-mono text-xs text-gray-600">${s.student_id}</td>
                     <td class="py-3 px-4 font-semibold text-gray-900">${s.student_name}</td>
@@ -434,9 +444,6 @@
             });
         }
 
-        // -------------------------------------------------------------
-        // EXPORT FUNCTIONALITY
-        // -------------------------------------------------------------
         function exportInterventions() {
             const schoolId = document.getElementById("school-select").value;
             if (!schoolId) {
@@ -523,9 +530,6 @@
             }
         }
 
-        // -------------------------------------------------------------
-        // ADMIN CONSOLE FUNCTIONS
-        // -------------------------------------------------------------
         function openAdminModal() {
             document.getElementById("admin-modal").classList.remove("hidden");
             loadAdminUsers();
@@ -623,12 +627,17 @@
             const tbody = document.getElementById("admin-users-tbody");
             tbody.innerHTML = "";
 
+            if (data.users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="p-2 text-center text-gray-400">No users available.</td></tr>';
+                return;
+            }
+
             data.users.forEach(u => {
                 const tr = document.createElement("tr");
                 tr.innerHTML = `
                     <td class="p-2 font-medium">${u.email}</td>
-                    <td class="p-2 uppercase font-mono">${u.role}</td>
-                    <td class="p-2">${u.school_name}</td>
+                    <td class="p-2 capitalize">${u.role}</td>
+                    <td class="p-2">${u.school_name || 'All Schools'}</td>
                     <td class="p-2 text-right">
                         <button onclick="deleteUser(${u.id}, '${u.email}')" class="text-red-600 hover:text-red-800 font-semibold">Delete</button>
                     </td>
@@ -638,7 +647,9 @@
         }
 
         async function deleteUser(userId, email) {
-            if (!confirm(`Are you sure you want to delete user account '${email}'?`)) return;
+            if (!confirm(`Are you sure you want to delete user '${email}'?`)) {
+                return;
+            }
 
             const res = await fetch(`/admin/users/${userId}`, { method: "DELETE" });
             const data = await res.json();
