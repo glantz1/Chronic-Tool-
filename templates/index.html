@@ -73,11 +73,17 @@
                     </div>
                     <div>
                         <label class="block text-xs font-semibold uppercase text-gray-500 mb-1">Sort By</label>
-                        <select id="sort-select" onchange="loadStudents()" class="border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-indigo-500">
+                        <select id="sort-select" onchange="syncDropdownAndLoad()" class="border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-indigo-500">
                             <option value="absences_desc">Most Absences</option>
                             <option value="absences_asc">Least Absences</option>
                             <option value="rate_asc">Lowest Attendance Rate</option>
+                            <option value="rate_desc">Highest Attendance Rate</option>
                             <option value="name_asc">Name (A-Z)</option>
+                            <option value="name_desc">Name (Z-A)</option>
+                            <option value="id_asc">Student ID (Ascending)</option>
+                            <option value="id_desc">Student ID (Descending)</option>
+                            <option value="grade_asc">Grade (Ascending)</option>
+                            <option value="grade_desc">Grade (Descending)</option>
                         </select>
                     </div>
                     <div class="flex items-center mt-5">
@@ -129,16 +135,26 @@
                 <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-4 text-gray-400"></i>
             </div>
 
-            <!-- STUDENTS TABLE -->
+            <!-- STUDENTS TABLE WITH CLICKABLE HEADERS -->
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <table class="w-full text-left border-collapse">
-                    <thead class="bg-gray-50 border-b border-gray-200 text-xs uppercase font-semibold text-gray-500">
+                    <thead class="bg-gray-50 border-b border-gray-200 text-xs uppercase font-semibold text-gray-500 select-none">
                         <tr>
-                            <th class="py-3 px-4">Student ID</th>
-                            <th class="py-3 px-4">Student Name</th>
-                            <th class="py-3 px-4">Grade</th>
-                            <th class="py-3 px-4">Days Absent / Membership Days</th>
-                            <th class="py-3 px-4">Attendance Rate</th>
+                            <th onclick="handleHeaderSort('id')" class="py-3 px-4 cursor-pointer hover:bg-gray-100 transition">
+                                Student ID <span id="sort-icon-id" class="text-gray-400 ml-1"><i class="fa-solid fa-sort"></i></span>
+                            </th>
+                            <th onclick="handleHeaderSort('name')" class="py-3 px-4 cursor-pointer hover:bg-gray-100 transition">
+                                Student Name <span id="sort-icon-name" class="text-gray-400 ml-1"><i class="fa-solid fa-sort"></i></span>
+                            </th>
+                            <th onclick="handleHeaderSort('grade')" class="py-3 px-4 cursor-pointer hover:bg-gray-100 transition">
+                                Grade <span id="sort-icon-grade" class="text-gray-400 ml-1"><i class="fa-solid fa-sort"></i></span>
+                            </th>
+                            <th onclick="handleHeaderSort('absences')" class="py-3 px-4 cursor-pointer hover:bg-gray-100 transition">
+                                Days Absent / Membership Days <span id="sort-icon-absences" class="text-indigo-600 ml-1"><i class="fa-solid fa-sort-down"></i></span>
+                            </th>
+                            <th onclick="handleHeaderSort('rate')" class="py-3 px-4 cursor-pointer hover:bg-gray-100 transition">
+                                Attendance Rate <span id="sort-icon-rate" class="text-gray-400 ml-1"><i class="fa-solid fa-sort"></i></span>
+                            </th>
                             <th class="py-3 px-4">Status</th>
                             <th class="py-3 px-4 text-right">Actions</th>
                         </tr>
@@ -271,6 +287,7 @@
     <script>
         let currentUser = null;
         let cachedSchools = [];
+        let currentSort = "absences_desc";
 
         document.addEventListener("DOMContentLoaded", checkSession);
 
@@ -371,6 +388,47 @@
             renderAdminSchools();
         }
 
+        function handleHeaderSort(column) {
+            if (column === 'absences') {
+                currentSort = (currentSort === 'absences_desc') ? 'absences_asc' : 'absences_desc';
+            } else if (column === 'rate') {
+                currentSort = (currentSort === 'rate_asc') ? 'rate_desc' : 'rate_asc';
+            } else if (column === 'name') {
+                currentSort = (currentSort === 'name_asc') ? 'name_desc' : 'name_asc';
+            } else if (column === 'id') {
+                currentSort = (currentSort === 'id_asc') ? 'id_desc' : 'id_asc';
+            } else if (column === 'grade') {
+                currentSort = (currentSort === 'grade_asc') ? 'grade_desc' : 'grade_asc';
+            }
+
+            document.getElementById("sort-select").value = currentSort;
+            updateHeaderIcons();
+            loadStudents();
+        }
+
+        function syncDropdownAndLoad() {
+            currentSort = document.getElementById("sort-select").value;
+            updateHeaderIcons();
+            loadStudents();
+        }
+
+        function updateHeaderIcons() {
+            const columns = ['id', 'name', 'grade', 'absences', 'rate'];
+            columns.forEach(col => {
+                const iconSpan = document.getElementById(`sort-icon-${col}`);
+                if (!iconSpan) return;
+
+                if (currentSort.startsWith(col)) {
+                    const isAsc = currentSort.endsWith('_asc');
+                    iconSpan.className = "text-indigo-600 ml-1";
+                    iconSpan.innerHTML = isAsc ? '<i class="fa-solid fa-sort-up"></i>' : '<i class="fa-solid fa-sort-down"></i>';
+                } else {
+                    iconSpan.className = "text-gray-400 ml-1";
+                    iconSpan.innerHTML = '<i class="fa-solid fa-sort"></i>';
+                }
+            });
+        }
+
         async function loadStudents() {
             const schoolId = document.getElementById("school-select").value;
             if (!schoolId) return;
@@ -379,9 +437,8 @@
             const selectedGrade = gradeSelect.value;
             const chronic = document.getElementById("chronic-filter").checked;
             const search = document.getElementById("search-input").value;
-            const sortBy = document.getElementById("sort-select").value;
 
-            const url = `/students?school_id=${schoolId}&grade=${encodeURIComponent(selectedGrade)}&chronic=${chronic}&search=${encodeURIComponent(search)}&sort=${sortBy}`;
+            const url = `/students?school_id=${schoolId}&grade=${encodeURIComponent(selectedGrade)}&chronic=${chronic}&search=${encodeURIComponent(search)}&sort=${currentSort}`;
             const res = await fetch(url);
             const data = await res.json();
 
