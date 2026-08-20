@@ -34,7 +34,6 @@ db = SQLAlchemy(app)
 # ------------------------------------------------------------------------------
 # SECURITY & RATE LIMITING
 # ------------------------------------------------------------------------------
-# Rate Limiter setup
 limiter = Limiter(
     get_remote_address,
     app=app,
@@ -42,8 +41,6 @@ limiter = Limiter(
     storage_uri="memory://"
 )
 
-# Talisman Security Headers setup
-# Allows inline scripts/styles required for Tailwind CDN and font icons
 csp = {
     'default-src': '\'self\'',
     'script-src': ['\'self\'', '\'unsafe-inline\'', 'https://cdn.tailwindcss.com'],
@@ -139,7 +136,6 @@ def admin_required(f):
 # ------------------------------------------------------------------------------
 @app.route('/')
 def index():
-    # Serves the single-page application template
     with open('index.html', 'r', encoding='utf-8') if os.path.exists('index.html') else io.StringIO('<h1>App Running</h1>') as f:
         content = f.read()
     return render_template_string(content)
@@ -211,7 +207,7 @@ def get_students():
     grade = request.args.get('grade', type=str, default='').strip()
     chronic = request.args.get('chronic', default='false').lower() == 'true'
     search = request.args.get('search', type=str, default='').strip().lower()
-    sort_by = request.args.get('sort', type=str, default='absences_desc')  # Sorting Parameter
+    sort_by = request.args.get('sort', type=str, default='absences_desc')
 
     user = User.query.get(session['user_id'])
     if user.role != 'admin' and user.school_id != school_id:
@@ -219,7 +215,6 @@ def get_students():
 
     query = Student.query.filter_by(school_id=school_id)
 
-    # Collect available grades before extra filters for UI drop-downs
     all_students_for_school = query.all()
     available_grades = sorted(list({s.grade for s in all_students_for_school if s.grade}))
 
@@ -228,7 +223,6 @@ def get_students():
 
     students = query.all()
 
-    # Search and Chronic filtering
     result = []
     total_count = 0
     chronic_count = 0
@@ -257,15 +251,27 @@ def get_students():
             'interventions_count': len(s.interventions)
         })
 
-    # Apply sorting logic
+    # Enhanced sorting logic for all interactive headers
     if sort_by == 'absences_desc':
         result.sort(key=lambda x: x['days_absent'], reverse=True)
     elif sort_by == 'absences_asc':
         result.sort(key=lambda x: x['days_absent'])
     elif sort_by == 'rate_asc':
         result.sort(key=lambda x: x['attendance_rate_pct'])
+    elif sort_by == 'rate_desc':
+        result.sort(key=lambda x: x['attendance_rate_pct'], reverse=True)
     elif sort_by == 'name_asc':
         result.sort(key=lambda x: x['student_name'].lower())
+    elif sort_by == 'name_desc':
+        result.sort(key=lambda x: x['student_name'].lower(), reverse=True)
+    elif sort_by == 'id_asc':
+        result.sort(key=lambda x: str(x['student_id']).lower())
+    elif sort_by == 'id_desc':
+        result.sort(key=lambda x: str(x['student_id']).lower(), reverse=True)
+    elif sort_by == 'grade_asc':
+        result.sort(key=lambda x: str(x['grade']).lower())
+    elif sort_by == 'grade_desc':
+        result.sort(key=lambda x: str(x['grade']).lower(), reverse=True)
 
     return jsonify({
         'total_students': total_count,
@@ -295,10 +301,8 @@ def upload_data():
         else:
             return jsonify({'error': 'Unsupported file format'}), 400
 
-        # Standardize column headers
         df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 
-        # Identify flexible column mapping
         id_col = next((c for c in df.columns if 'id' in c), None)
         name_col = next((c for c in df.columns if 'name' in c), None)
         grade_col = next((c for c in df.columns if 'grade' in c), None)
@@ -475,7 +479,6 @@ def delete_user(user_id):
 # ------------------------------------------------------------------------------
 def init_db():
     db.create_all()
-    # Create default admin account if none exists
     if not User.query.filter_by(role='admin').first():
         admin = User(email='admin@school.org', role='admin')
         admin.set_password('AdminPass123!')
