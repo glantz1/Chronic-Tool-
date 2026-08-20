@@ -94,13 +94,16 @@ class Student(db.Model):
 
     @property
     def attendance_rate(self):
-        if self.total_days <= 0:
+        if not self.total_days or self.total_days <= 0:
             return 100.0
         return round(((self.total_days - self.days_absent) / self.total_days) * 100, 1)
 
     @property
     def is_chronic(self):
-        return self.attendance_rate < 90.0
+        # 10% or more of total days missed = Chronically Absent
+        if not self.total_days or self.total_days <= 0:
+            return False
+        return (self.days_absent / self.total_days) >= 0.10
 
 class Intervention(db.Model):
     __tablename__ = 'interventions'
@@ -203,45 +206,42 @@ def get_schools():
 def get_students():
     school_id = request.args.get('school_id', type=int)
     grade = request.args.get('grade', type=str, default='').strip()
-    chronic = request.args.get('chronic', default='false').lower() == 'true'
+    chronic_only = request.args.get('chronic', default='false').lower() == 'true'
     search = request.args.get('search', type=str, default='').strip().lower()
     sort_by = request.args.get('sort', type=str, default='absences_desc')
 
     user = User.query.get(session['user_id'])
     
-    # Fallback to user's school if school_id isn't provided
     if not school_id and user.school_id:
         school_id = user.school_id
 
     if user.role != 'admin' and user.school_id != school_id:
         return jsonify({'error': 'Access denied to this school'}), 403
 
-    query = Student.query.filter_by(school_id=school_id)
-
-    all_students_for_school = query.all()
-    available_grades = sorted(list({s.grade for s in all_students_for_school if s.grade}))
-
-    if grade:
-        query = query.filter_by(grade=grade)
-
-    students = query.all()
+    # Query all students in the school
+    all_students = Student.query.filter_by(school_id=school_id).all()
+    available_grades = sorted(list({s.grade for s in all_students if s.grade}))
 
     result = []
-    total_count = 0
     chronic_count = 0
 
-    for s in students:
+    for s in all_students:
         is_chr = s.is_chronic
         if is_chr:
             chronic_count += 1
-        
-        if chronic and not is_chr:
+
+        # Apply chronic filter when toggle is active
+        if chronic_only and not is_chr:
             continue
 
-        if search and (search not in s.student_name.lower() and search not in s.student_id.lower()):
+        # Apply grade filter
+        if grade and str(s.grade).strip() != grade:
             continue
 
-        total_count += 1
+        # Apply search filter
+        if search and (search not in s.student_name.lower() and search not in str(s.student_id).lower()):
+            continue
+
         result.append({
             'db_id': s.id,
             'student_id': s.student_id,
@@ -254,6 +254,7 @@ def get_students():
             'interventions_count': len(s.interventions)
         })
 
+    # Sorting logic
     if sort_by == 'absences_desc':
         result.sort(key=lambda x: x['days_absent'], reverse=True)
     elif sort_by == 'absences_asc':
@@ -276,7 +277,7 @@ def get_students():
         result.sort(key=lambda x: str(x['grade']).lower(), reverse=True)
 
     return jsonify({
-        'total_students': total_count,
+        'total_students': len(all_students),
         'chronic_count': chronic_count,
         'available_grades': available_grades,
         'students': result
@@ -303,22 +304,18 @@ def upload_data():
         else:
             return jsonify({'error': 'Unsupported file format'}), 400
 
-        # Clean column names for flexible matching
+        # Standardize headers to lowercase stripped strings
         df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 
-        # Explicit lookup for PowerSchool/BI Attendance Detail export headers
+        # Target mapping for PowerSchool/BI Attendance Detail headers
         id_col = next((c for c in df.columns if c in ['studentnumber', 'student_number', 'student_id', 'id'] or 'studentnumber' in c), None)
         name_col = next((c for c in df.columns if c in ['studentname', 'student_name', 'name'] or 'studentname' in c), None)
         grade_col = next((c for c in df.columns if 'grade' in c), None)
-        
-        # Absence columns match
         absent_col = next((c for c in df.columns if c in ['currentschoolabsences7', 'totalabsenceindistrict_hdwd10'] or 'absent' in c or 'absences' in c), None)
-        
-        # Total membership/days columns match
         total_col = next((c for c in df.columns if c in ['currentschoolmembershipdays11', 'totalmembershipdaysindistrict10'] or 'membership' in c or 'total_days' in c), None)
 
         if not all([id_col, name_col, grade_col, absent_col, total_col]):
-            return jsonify({'error': 'Missing required columns (ID, Name, Grade, Absent Days, Total Days)'}), 400
+            return jsonify({'error': 'Missing required headers (Student ID, Name, Grade, Absent Days, Total Days)'}), 400
 
         count = 0
         for _, row in df.iterrows():
@@ -326,7 +323,6 @@ def upload_data():
             if pd.isnull(raw_id):
                 continue
 
-            # Ensure ID is formatted as a clean string to avoid float precision lookup bugs
             st_id = str(int(raw_id)) if isinstance(raw_id, (float, int)) else str(raw_id).strip()
 
             student = Student.query.filter_by(student_id=st_id, school_id=school_id).first()
@@ -341,7 +337,7 @@ def upload_data():
             count += 1
 
         db.session.commit()
-        return jsonify({'message': f'Successfully processed {count} student records.'})
+        return jsonify({'message': f'Successfully imported {count} student records.'})
 
     except Exception as e:
         db.session.rollback()
@@ -492,7 +488,6 @@ def delete_user(user_id):
 # INITIALIZATION & GLOBAL STARTUP
 # ------------------------------------------------------------------------------
 with app.app_context():
-    # Automatically sync DB schema on app boot without deleting persistent records
     db.create_all()
     if not User.query.filter_by(role='admin').first():
         admin = User(email='admin@school.org', role='admin')
