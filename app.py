@@ -5,7 +5,7 @@ from functools import wraps
 
 import pandas as pd
 from flask import (
-    Flask, render_template_string, request, jsonify, 
+    Flask, render_template, request, jsonify, 
     session, redirect, url_for, send_file
 )
 from flask_sqlalchemy import SQLAlchemy
