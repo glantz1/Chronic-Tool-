@@ -249,7 +249,6 @@ def get_students():
             'interventions_count': len(s.interventions)
         })
 
-    # Enhanced sorting logic for interactive table headers
     if sort_by == 'absences_desc':
         result.sort(key=lambda x: x['days_absent'], reverse=True)
     elif sort_by == 'absences_asc':
@@ -476,6 +475,8 @@ def delete_user(user_id):
 # INITIALIZATION & CLI SETUP
 # ------------------------------------------------------------------------------
 def init_db():
+    # Force drop old database tables to resolve schema mismatches on Render
+    db.drop_all()
     db.create_all()
     if not User.query.filter_by(role='admin').first():
         admin = User(email='admin@school.org', role='admin')
