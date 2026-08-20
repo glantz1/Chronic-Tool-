@@ -208,6 +208,11 @@ def get_students():
     sort_by = request.args.get('sort', type=str, default='absences_desc')
 
     user = User.query.get(session['user_id'])
+    
+    # Fallback to user's school if school_id isn't provided
+    if not school_id and user.school_id:
+        school_id = user.school_id
+
     if user.role != 'admin' and user.school_id != school_id:
         return jsonify({'error': 'Access denied to this school'}), 403
 
@@ -317,7 +322,13 @@ def upload_data():
 
         count = 0
         for _, row in df.iterrows():
-            st_id = str(row[id_col]).strip()
+            raw_id = row[id_col]
+            if pd.isnull(raw_id):
+                continue
+
+            # Ensure ID is formatted as a clean string to avoid float precision lookup bugs
+            st_id = str(int(raw_id)) if isinstance(raw_id, (float, int)) else str(raw_id).strip()
+
             student = Student.query.filter_by(student_id=st_id, school_id=school_id).first()
             if not student:
                 student = Student(student_id=st_id, school_id=school_id)
