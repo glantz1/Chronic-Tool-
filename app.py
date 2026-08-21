@@ -307,11 +307,16 @@ def upload_data():
         else:
             return jsonify({'error': 'Unsupported file format'}), 400
 
-        # Standardize headers to lowercase stripped strings
+       # Standardize headers to lowercase stripped strings
         df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 
-        # Explicitly map Student Number and exclude School Number
-        id_col = next((c for c in df.columns if c in ['studentnumber', 'student_number', 'student_id', 'studentnumber1'] or 'studentnumber' in c), None)
+        # Look specifically for 'studentnumber' (exact match first)
+        id_col = None
+        if 'studentnumber' in df.columns:
+            id_col = 'studentnumber'
+        else:
+            # Fallback that ignores headers containing 'studentnumber1' or 'school'
+            id_col = next((c for c in df.columns if ('student' in c or 'id' in c) and 'school' not in c and '1' not in c), None)
         if not id_col:
             id_col = next((c for c in df.columns if ('id' in c or 'number' in c) and 'school' not in c), None)
 
