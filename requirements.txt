@@ -1,9 +1,9 @@
 Flask
 Flask-SQLAlchemy
-pandas
-openpyxl
-werkzeug
 Flask-Talisman
 Flask-Limiter
+Flask-CORS
+pandas
+openpyxl
 gunicorn
 psycopg2-binary
