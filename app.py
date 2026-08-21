@@ -8,7 +8,6 @@ from flask import (
     Flask, render_template, request, jsonify, 
     session, redirect, url_for, send_file
 )
-from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_talisman import Talisman
 from flask_limiter import Limiter
@@ -20,7 +19,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 # ------------------------------------------------------------------------------
 template_dir = os.path.abspath('templates')
 app = Flask(__name__, template_folder=template_dir)
-CORS(app)
 
 # Secret key configuration
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -117,6 +115,22 @@ class Intervention(db.Model):
     type = db.Column(db.String(50), nullable=False)
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+# ------------------------------------------------------------------------------
+# DATABASE RESET ROUTE (TEMPORARY FOR MAINTENANCE)
+# ------------------------------------------------------------------------------
+@app.route('/reset-db-now')
+def reset_db_now():
+    db.drop_all()
+    db.create_all()
+    
+    # Re-create initial admin user
+    admin = User(email='admin@school.org', role='admin')
+    admin.set_password('AdminPass123!')
+    db.session.add(admin)
+    db.session.commit()
+    
+    return "Database successfully reset! You can now log back in and upload your file."
 
 # ------------------------------------------------------------------------------
 # AUTHENTICATION & ACCESS CONTROL HELPERS
@@ -307,18 +321,15 @@ def upload_data():
         else:
             return jsonify({'error': 'Unsupported file format'}), 400
 
-       # Standardize headers to lowercase stripped strings
+        # Standardize headers to lowercase stripped strings
         df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 
-        # Look specifically for 'studentnumber' (exact match first)
+        # Look specifically for exact 'studentnumber' (and ignore 'studentnumber1' text column)
         id_col = None
         if 'studentnumber' in df.columns:
             id_col = 'studentnumber'
         else:
-            # Fallback that ignores headers containing 'studentnumber1' or 'school'
             id_col = next((c for c in df.columns if ('student' in c or 'id' in c) and 'school' not in c and '1' not in c), None)
-        if not id_col:
-            id_col = next((c for c in df.columns if ('id' in c or 'number' in c) and 'school' not in c), None)
 
         name_col = next((c for c in df.columns if c in ['studentname', 'student_name', 'name'] or 'studentname' in c), None)
         grade_col = next((c for c in df.columns if 'grade' in c), None)
