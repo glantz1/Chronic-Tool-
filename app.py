@@ -8,6 +8,7 @@ from flask import (
     Flask, render_template, request, jsonify, 
     session, redirect, url_for, send_file
 )
+from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_talisman import Talisman
 from flask_limiter import Limiter
@@ -17,7 +18,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 # ------------------------------------------------------------------------------
 # APP & SETUP CONFIGURATION
 # ------------------------------------------------------------------------------
-app = Flask(__name__)
+template_dir = os.path.abspath('templates')
+app = Flask(__name__, template_folder=template_dir)
+CORS(app)
 
 # Secret key configuration
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
