@@ -99,6 +99,42 @@
                 </div>
             </div>
 
+            <!-- METRIC CARDS BANNER -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Total Membership Card -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <div class="text-xs font-bold uppercase text-slate-400">Total Enrolled Membership</div>
+                        <div id="metricTotalMembership" class="text-3xl font-black text-slate-800 mt-1">0</div>
+                    </div>
+                    <div class="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 text-xl">
+                        <i class="fa-solid fa-users"></i>
+                    </div>
+                </div>
+
+                <!-- Chronic Count Card -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <div class="text-xs font-bold uppercase text-slate-400">Chronic Absentees</div>
+                        <div id="metricChronicCount" class="text-3xl font-black text-red-600 mt-1">0</div>
+                    </div>
+                    <div class="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center text-red-600 text-xl">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                </div>
+
+                <!-- Chronic Rate % Card -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <div class="text-xs font-bold uppercase text-slate-400">Chronic Rate %</div>
+                        <div id="metricChronicPct" class="text-3xl font-black text-amber-500 mt-1">0.0%</div>
+                    </div>
+                    <div class="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-500 text-xl">
+                        <i class="fa-solid fa-chart-pie"></i>
+                    </div>
+                </div>
+            </div>
+
             <!-- TOP CONTROLS & CSV UPLOAD -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <!-- Select School -->
@@ -341,7 +377,12 @@
             const res = await fetch(url);
             const data = await res.json();
 
-            // Populate available grades dynamically if needed
+            // Update Metric Cards
+            document.getElementById('metricTotalMembership').textContent = data.total_students;
+            document.getElementById('metricChronicCount').textContent = data.chronic_count;
+            document.getElementById('metricChronicPct').textContent = `${data.chronic_rate_pct}%`;
+
+            // Populate available grades dynamically
             const gradeFilter = document.getElementById('gradeFilter');
             const selectedGrade = gradeFilter.value;
             gradeFilter.innerHTML = '<option value="">All Grades</option>';
@@ -352,7 +393,7 @@
             const tbody = document.getElementById('studentTableBody');
             tbody.innerHTML = '';
 
-            document.getElementById('studentStats').textContent = `Showing ${data.students.length} of ${data.total_students} Students (${data.chronic_count} Chronically Absent)`;
+            document.getElementById('studentStats').textContent = `Showing ${data.students.length} of ${data.total_students} Students`;
 
             if (data.students.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="8" class="text-center p-8 text-slate-400 font-medium">No student records found matching filters.</td></tr>';
@@ -389,7 +430,6 @@
             document.getElementById('intDate').value = new Date().toISOString().split('T')[0];
             document.getElementById('intNotes').value = '';
 
-            // Fetch previous interventions
             const res = await fetch(`/interventions?student_db_id=${studentDbId}`);
             const data = await res.json();
             
