@@ -284,18 +284,14 @@ def get_students():
         result.sort(key=lambda x: x['student_name'].lower())
     elif sort_by == 'name_desc':
         result.sort(key=lambda x: x['student_name'].lower(), reverse=True)
-    elif sort_by == 'id_asc':
-        result.sort(key=lambda x: str(x['student_id']).lower())
-    elif sort_by == 'id_desc':
-        result.sort(key=lambda x: str(x['student_id']).lower(), reverse=True)
-    elif sort_by == 'grade_asc':
-        result.sort(key=lambda x: str(x['grade']).lower())
-    elif sort_by == 'grade_desc':
-        result.sort(key=lambda x: str(x['grade']).lower(), reverse=True)
+
+    total_students_count = len(all_students)
+    chronic_pct = round((chronic_count / total_students_count * 100), 1) if total_students_count > 0 else 0.0
 
     return jsonify({
-        'total_students': len(all_students),
+        'total_students': total_students_count,
         'chronic_count': chronic_count,
+        'chronic_rate_pct': chronic_pct,
         'available_grades': available_grades,
         'students': result
     })
@@ -452,18 +448,6 @@ def create_school():
     db.session.commit()
     return jsonify({'message': 'School created successfully'})
 
-@app.route('/admin/schools/<int:school_id>', methods=['DELETE'])
-@login_required
-@admin_required
-def delete_school(school_id):
-    school = School.query.get(school_id)
-    if not school:
-        return jsonify({'error': 'School not found'}), 404
-
-    db.session.delete(school)
-    db.session.commit()
-    return jsonify({'message': 'School and related data deleted successfully'})
-
 @app.route('/admin/users', methods=['GET', 'POST'])
 @login_required
 @admin_required
@@ -493,18 +477,6 @@ def manage_users():
     db.session.add(user)
     db.session.commit()
     return jsonify({'message': 'User created successfully'})
-
-@app.route('/admin/users/<int:user_id>', methods=['DELETE'])
-@login_required
-@admin_required
-def delete_user(user_id):
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
-
-    db.session.delete(user)
-    db.session.commit()
-    return jsonify({'message': 'User deleted successfully'})
 
 # ------------------------------------------------------------------------------
 # INITIALIZATION & GLOBAL STARTUP
