@@ -55,7 +55,7 @@
         <!-- MAIN DASHBOARD CONTAINER -->
         <div id="dashboardSection" class="hidden space-y-6">
 
-            <!-- ADMIN CONTROL CENTER (ADMIN ONLY) -->
+            <!-- ADMIN CONTROL CENTER -->
             <div id="adminPanel" class="hidden bg-white p-6 rounded-2xl shadow-sm border border-indigo-100 space-y-6">
                 <div class="border-b pb-3 flex items-center space-x-2">
                     <i class="fa-solid fa-user-shield text-indigo-600 text-xl"></i>
@@ -101,7 +101,6 @@
 
             <!-- METRIC CARDS BANNER -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <!-- Total Membership Card -->
                 <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
                     <div>
                         <div class="text-xs font-bold uppercase text-slate-400">Total Enrolled Membership</div>
@@ -112,7 +111,6 @@
                     </div>
                 </div>
 
-                <!-- Chronic Count Card -->
                 <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
                     <div>
                         <div class="text-xs font-bold uppercase text-slate-400">Chronic Absentees</div>
@@ -123,7 +121,6 @@
                     </div>
                 </div>
 
-                <!-- Chronic Rate % Card -->
                 <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
                     <div>
                         <div class="text-xs font-bold uppercase text-slate-400">Chronic Rate %</div>
@@ -135,9 +132,8 @@
                 </div>
             </div>
 
-            <!-- TOP CONTROLS & CSV UPLOAD -->
+            <!-- TOP CONTROLS, CSV UPLOAD & DATA RESET -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <!-- Select School -->
                 <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
                     <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Active School</label>
                     <select id="schoolSelect" onchange="loadStudents()" class="w-full px-3.5 py-2 border rounded-xl text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500">
@@ -145,9 +141,13 @@
                     </select>
                 </div>
 
-                <!-- CSV Upload -->
                 <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 md:col-span-2">
-                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Import CSV or Excel Data</label>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-xs font-bold uppercase text-slate-400">Import CSV or Excel Data</label>
+                        <button type="button" onclick="confirmResetSchoolData()" class="text-xs text-red-600 hover:text-red-700 font-bold flex items-center">
+                            <i class="fa-solid fa-trash-can mr-1"></i> Clear School Data
+                        </button>
+                    </div>
                     <form onsubmit="handleFileUpload(event)" class="flex gap-3">
                         <input type="file" id="csvFile" accept=".csv, .xlsx, .xls" required class="flex-1 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
                         <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white px-5 py-2 rounded-xl text-sm font-semibold transition flex items-center shadow-sm">
@@ -377,12 +377,10 @@
             const res = await fetch(url);
             const data = await res.json();
 
-            // Update Metric Cards
             document.getElementById('metricTotalMembership').textContent = data.total_students;
             document.getElementById('metricChronicCount').textContent = data.chronic_count;
             document.getElementById('metricChronicPct').textContent = `${data.chronic_rate_pct}%`;
 
-            // Populate available grades dynamically
             const gradeFilter = document.getElementById('gradeFilter');
             const selectedGrade = gradeFilter.value;
             gradeFilter.innerHTML = '<option value="">All Grades</option>';
@@ -422,6 +420,36 @@
                     </tr>
                 `;
             });
+        }
+
+        async function confirmResetSchoolData() {
+            const schoolSelect = document.getElementById('schoolSelect');
+            const schoolId = schoolSelect.value;
+            const schoolName = schoolSelect.options[schoolSelect.selectedIndex]?.text || "Selected School";
+
+            if (!schoolId) {
+                return alert('Please select a school first.');
+            }
+
+            const warningMessage = `Are you sure you want to clear all student and intervention data for "${schoolName}"?\n\nThis action cannot be undone.`;
+
+            if (confirm(warningMessage)) {
+                try {
+                    const res = await fetch(`/schools/${schoolId}/reset-data`, {
+                        method: 'DELETE'
+                    });
+
+                    const data = await res.json();
+                    if (res.ok) {
+                        alert(data.message);
+                        loadStudents();
+                    } else {
+                        alert(data.error || 'Failed to clear school data.');
+                    }
+                } catch (err) {
+                    alert('An error occurred while attempting to clear data.');
+                }
+            }
         }
 
         async function openInterventionModal(studentDbId, studentName) {
