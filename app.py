@@ -117,22 +117,6 @@ class Intervention(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # ------------------------------------------------------------------------------
-# DATABASE RESET ROUTE (TEMPORARY FOR MAINTENANCE)
-# ------------------------------------------------------------------------------
-@app.route('/reset-db-now')
-def reset_db_now():
-    db.drop_all()
-    db.create_all()
-    
-    # Re-create initial admin user
-    admin = User(email='admin@school.org', role='admin')
-    admin.set_password('AdminPass123!')
-    db.session.add(admin)
-    db.session.commit()
-    
-    return "Database successfully reset! You can now log back in and upload your file."
-
-# ------------------------------------------------------------------------------
 # AUTHENTICATION & ACCESS CONTROL HELPERS
 # ------------------------------------------------------------------------------
 def login_required(f):
@@ -218,6 +202,33 @@ def get_schools():
     
     return jsonify({'schools': [{'id': s.id, 'name': s.name} for s in schools]})
 
+@app.route('/schools/<int:school_id>/reset-data', methods=['DELETE'])
+@login_required
+def reset_school_data(school_id):
+    user = User.query.get(session['user_id'])
+
+    if user.role != 'admin' and user.school_id != school_id:
+        return jsonify({'error': 'Unauthorized to modify this school'}), 403
+
+    school = School.query.get(school_id)
+    if not school:
+        return jsonify({'error': 'School not found'}), 404
+
+    try:
+        students = Student.query.filter_by(school_id=school_id).all()
+        student_count = len(students)
+
+        for s in students:
+            db.session.delete(s)
+
+        db.session.commit()
+        return jsonify({
+            'message': f'Successfully cleared {student_count} student records for {school.name}.'
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to clear school data: {str(e)}'}), 500
+
 @app.route('/students', methods=['GET'])
 @login_required
 def get_students():
@@ -235,7 +246,6 @@ def get_students():
     if user.role != 'admin' and user.school_id != school_id:
         return jsonify({'error': 'Access denied to this school'}), 403
 
-    # Query all students in the school
     all_students = Student.query.filter_by(school_id=school_id).all()
     available_grades = sorted(list({s.grade for s in all_students if s.grade}))
 
@@ -247,15 +257,12 @@ def get_students():
         if is_chr:
             chronic_count += 1
 
-        # Apply chronic filter when toggle is active
         if chronic_only and not is_chr:
             continue
 
-        # Apply grade filter
         if grade and str(s.grade).strip() != grade:
             continue
 
-        # Apply search filter
         if search and (search not in s.student_name.lower() and search not in str(s.student_id).lower()):
             continue
 
@@ -271,7 +278,6 @@ def get_students():
             'interventions_count': len(s.interventions)
         })
 
-    # Sorting logic
     if sort_by == 'absences_desc':
         result.sort(key=lambda x: x['days_absent'], reverse=True)
     elif sort_by == 'absences_asc':
@@ -317,10 +323,8 @@ def upload_data():
         else:
             return jsonify({'error': 'Unsupported file format'}), 400
 
-        # Standardize headers to lowercase stripped strings
         df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 
-        # Look specifically for exact 'studentnumber' (and ignore 'studentnumber1' text column)
         id_col = None
         if 'studentnumber' in df.columns:
             id_col = 'studentnumber'
