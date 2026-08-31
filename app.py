@@ -30,7 +30,11 @@ app.config["SECRET_KEY"] = os.environ.get(
     "SECRET_KEY", "dev-secret-key-change-in-production"
 )
 
-# Neon PostgreSQL Database URL
+# Change this format:
+# postgresql://user:password@ep-fragrant-dust-ax9hfa0o-pooler.c-4.us-east-2.aws.neon.tech/dbname
+
+# To this format:
+app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql://user:password@ep-fragrant-dust-ax9hfa0o-pooler.c-4.us-east-2.aws.neon.tech/dbname?sslmode=require"# Neon PostgreSQL Database URL
 NEON_DATABASE_URL = (
     "postgresql://neondb_owner:npg_2wIqHou6gmyK@"
     "ep-fragrant-dust-ax9hfa0o-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
