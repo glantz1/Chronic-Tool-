@@ -30,29 +30,27 @@ app.config["SECRET_KEY"] = os.environ.get(
     "SECRET_KEY", "dev-secret-key-change-in-production"
 )
 
-# Change this format:
-# postgresql://user:password@ep-fragrant-dust-ax9hfa0o-pooler.c-4.us-east-2.aws.neon.tech/dbname
+# Database Configuration (Resolves Neon SSL issue & local fallback)
+database_url = os.environ.get("DATABASE_URL", "sqlite:///attendance_portal.db")
 
-# To this format:
-app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql://user:password@ep-fragrant-dust-ax9hfa0o-pooler.c-4.us-east-2.aws.neon.tech/dbname?sslmode=require"# Neon PostgreSQL Database URL
-NEON_DATABASE_URL = (
-    "postgresql://neondb_owner:npg_2wIqHou6gmyK@"
-    "ep-fragrant-dust-ax9hfa0o-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
-)
-
-# Prioritize environment variable DATABASE_URL, fallback to Neon connection string
-database_url = os.environ.get("DATABASE_URL", NEON_DATABASE_URL)
+# Fix legacy Heroku/Render postgres:// scheme for SQLAlchemy 2.0+
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+# Ensure Neon PostgreSQL connections enforce SSL mode
+if "neon.tech" in database_url and "sslmode" not in database_url:
+    separator = "&" if "?" in database_url else "?"
+    database_url += f"{separator}sslmode=require"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# Engine options for Neon serverless pooling resilience
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "pool_pre_ping": True,
-    "pool_recycle": 300,
-}
+# Engine options for PostgreSQL pooling resilience
+if database_url.startswith("postgresql"):
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+    }
 
 db = SQLAlchemy(app)
 
