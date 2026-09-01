@@ -149,7 +149,7 @@
                         </button>
                     </div>
                     <form onsubmit="handleFileUpload(event)" class="flex gap-3">
-                        <input type="file" id="csvFile" accept=".csv, .xlsx, .xls" required class="flex-1 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+                        <input type="file" id="csvFile" accept=".csv" required class="flex-1 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
                         <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white px-5 py-2 rounded-xl text-sm font-semibold transition flex items-center shadow-sm">
                             <i class="fa-solid fa-cloud-arrow-up mr-2"></i> Upload File
                         </button>
@@ -171,6 +171,7 @@
 
                     <select id="sortFilter" onchange="loadStudents()" class="px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500">
                         <option value="absences_desc">Most Absences</option>
+                        <option value="unexcused_desc">Most Unexcused</option>
                         <option value="absences_asc">Least Absences</option>
                         <option value="rate_asc">Lowest Attendance %</option>
                         <option value="rate_desc">Highest Attendance %</option>
@@ -204,7 +205,8 @@
                                 <th class="p-4">Student ID</th>
                                 <th class="p-4">Name</th>
                                 <th class="p-4">Grade</th>
-                                <th class="p-4 text-center">Absent Days</th>
+                                <th class="p-4 text-center">Total Absences</th>
+                                <th class="p-4 text-center">Unexcused</th>
                                 <th class="p-4 text-center">Total Days</th>
                                 <th class="p-4 text-center">Attendance %</th>
                                 <th class="p-4">Status</th>
@@ -213,7 +215,7 @@
                         </thead>
                         <tbody id="studentTableBody" class="divide-y divide-slate-200 text-sm">
                             <tr>
-                                <td colspan="8" class="text-center p-8 text-slate-400">Select a school to view student roster.</td>
+                                <td colspan="9" class="text-center p-8 text-slate-400">Select a school to view student roster.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -394,7 +396,7 @@
             document.getElementById('studentStats').textContent = `Showing ${data.students.length} of ${data.total_students} Students`;
 
             if (data.students.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="text-center p-8 text-slate-400 font-medium">No student records found matching filters.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center p-8 text-slate-400 font-medium">No student records found matching filters.</td></tr>';
                 return;
             }
 
@@ -409,6 +411,7 @@
                         <td class="p-4 font-semibold text-slate-900">${s.student_name}</td>
                         <td class="p-4 text-slate-600">${s.grade}</td>
                         <td class="p-4 text-center font-bold text-red-600">${s.days_absent}</td>
+                        <td class="p-4 text-center font-bold text-amber-600">${s.unexcused_absences || 0}</td>
                         <td class="p-4 text-center text-slate-600">${s.total_days}</td>
                         <td class="p-4 text-center font-bold">${s.attendance_rate_pct}%</td>
                         <td class="p-4">${statusBadge}</td>
