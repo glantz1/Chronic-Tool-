@@ -185,13 +185,27 @@ def get_students():
     search = request.args.get('search', '').strip().lower()
     grade = request.args.get('grade', '').strip()
     chronic_only = request.args.get('chronic', 'false').lower() == 'true'
-    sort_by = request.args.get('sort', 'absences_desc')
+   processed = 0
+    for row in records:
+        clean_row = {k.strip().lower().replace(' ', '_'): str(v).strip() for k, v in row.items() if k}
+        
+        # Expanded fallbacks for Student ID
+        sid = (clean_row.get('student_id') or clean_row.get('id') or 
+               clean_row.get('student_number') or clean_row.get('student_no') or 
+               clean_row.get('state_id'))
+        
+        # Expanded fallbacks for Student Name
+        sname = (clean_row.get('student_name') or clean_row.get('name') or 
+                 clean_row.get('full_name') or 
+                 (f"{clean_row.get('first_name', '')} {clean_row.get('last_name', '')}".strip()))
+        
+        grade = clean_row.get('grade') or clean_row.get('grade_level') or ''
+        absent_val = clean_row.get('days_absent') or clean_row.get('absences') or clean_row.get('days_absent_total') or '0'
+        unexcused_val = clean_row.get('unexcused_absences') or clean_row.get('unexcused') or clean_row.get('unexcused_days') or '0'
+        total_val = clean_row.get('total_days') or clean_row.get('membership_days') or '180'
 
-    if not school_id:
-        return jsonify({"error": "school_id query param is required"}), 400
-
-    query = Student.query.filter_by(school_id=school_id)
-    all_school_students = query.all()
+        if not sid or not sname or sname == " ":
+            continue
 
     total_enrolled = len(all_school_students)
     chronic_count = len([s for s in all_school_students if s.is_chronic])
