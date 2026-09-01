@@ -138,7 +138,7 @@ def get_schools():
         schools = School.query.filter_by(id=user.school_id).all() if user.school_id else []
     return jsonify({"schools": [{"id": s.id, "name": s.name} for s in schools]})
 
-@app.route('/admin/schools', methods=['POST'])
+@app.route('/admin/assign-school', methods=['GET', 'POST'])
 def add_school():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
