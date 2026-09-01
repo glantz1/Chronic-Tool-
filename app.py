@@ -4,10 +4,11 @@ import csv
 from flask import Flask, request, jsonify, render_template, session, send_file
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'default-dev-secret-key-change-me')
 
-# Database Configuration
+# Database Configuration (PostgreSQL on Railway with local SQLite fallback)
 db_url = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
@@ -27,7 +28,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='staff') # 'admin' or 'staff'
+    role = db.Column(db.String(20), nullable=False, default='staff')  # 'admin' or 'staff'
     school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)
 
     def set_password(self, password):
@@ -58,26 +59,26 @@ class Intervention(db.Model):
     notes = db.Column(db.Text, nullable=True)
     logged_by_email = db.Column(db.String(120), nullable=True)
 
-# Helper to automatically add missing database columns safely
+# Database Initialization
 def init_db():
-    with app.app_context():
-        db.create_all()
-        # Add column if missing in existing DB
-        try:
-            with db.engine.connect() as conn:
-                conn.execute(db.text("ALTER TABLE student ADD COLUMN unexcused_absences FLOAT DEFAULT 0.0"))
-                conn.commit()
-        except Exception:
-            pass # Column already exists
+    db.create_all()
+    # Add unexcused_absences column safely if missing in existing database schema
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(db.text("ALTER TABLE student ADD COLUMN unexcused_absences FLOAT DEFAULT 0.0"))
+            conn.commit()
+    except Exception:
+        pass  # Column already exists
 
-        # Seed default super admin if none exists
-        if not User.query.filter_by(role='admin').first():
-            default_admin = User(email='admin@school.edu', role='admin')
-            default_admin.set_password('AdminPass123!')
-            db.session.add(default_admin)
-            db.session.commit()
+    # Seed default super admin if none exists
+    if not User.query.filter_by(role='admin').first():
+        default_admin = User(email='admin@school.edu', role='admin')
+        default_admin.set_password('AdminPass123!')
+        db.session.add(default_admin)
+        db.session.commit()
 
-init_db()
+with app.app_context():
+    init_db()
 
 # --- ROUTES ---
 @app.route('/')
@@ -185,39 +186,13 @@ def get_students():
     search = request.args.get('search', '').strip().lower()
     grade = request.args.get('grade', '').strip()
     chronic_only = request.args.get('chronic', 'false').lower() == 'true'
-   processed = 0
-    for row in records:
-        # Standardize key format (lowercase and stripped)
-        clean_row = {k.strip().lower(): str(v).strip() for k, v in row.items() if k}
-        
-        # Student ID mappings (adds studentnumber, student_number)
-        sid = (clean_row.get('student_id') or clean_row.get('id') or 
-               clean_row.get('student id') or clean_row.get('studentnumber') or 
-               clean_row.get('student_number') or clean_row.get('studentnumber1'))
-        
-        # Student Name mappings (adds studentname)
-        sname = (clean_row.get('student_name') or clean_row.get('name') or 
-                 clean_row.get('student name') or clean_row.get('studentname') or 
-                 clean_row.get('full_name'))
-        
-        # Grade mapping
-        grade = clean_row.get('grade') or clean_row.get('grade level') or ''
-        
-        # Absence & Membership mappings (adds SIS specific column names)
-        absent_val = (clean_row.get('days_absent') or clean_row.get('absences') or 
-                      clean_row.get('days absent') or clean_row.get('currentschoolabsences7') or '0')
-                      
-        unexcused_val = (clean_row.get('unexcused_absences') or clean_row.get('unexcused') or 
-                         clean_row.get('unexcused absences') or clean_row.get('unexcusedabsences') or '0')
-                         
-        total_val = (clean_row.get('total_days') or clean_row.get('membership_days') or 
-                     clean_row.get('total days') or clean_row.get('currentschoolmembershipdays11') or '180')
+    sort_by = request.args.get('sort', 'absences_desc')
 
-        if not sid or not sname:
-            continue
+    if not school_id:
+        return jsonify({"error": "school_id query param is required"}), 400
 
-        if not sid or not sname or sname == " ":
-            continue
+    query = Student.query.filter_by(school_id=school_id)
+    all_school_students = query.all()
 
     total_enrolled = len(all_school_students)
     chronic_count = len([s for s in all_school_students if s.is_chronic])
@@ -297,12 +272,26 @@ def upload_file():
     processed = 0
     for row in records:
         clean_row = {k.strip().lower(): str(v).strip() for k, v in row.items() if k}
-        sid = clean_row.get('student_id') or clean_row.get('id') or clean_row.get('student id')
-        sname = clean_row.get('student_name') or clean_row.get('name') or clean_row.get('student name')
+        
+        # Extended key lookups for Infinite Campus / PowerSchool / SIS exports
+        sid = (clean_row.get('student_id') or clean_row.get('id') or 
+               clean_row.get('student id') or clean_row.get('studentnumber') or 
+               clean_row.get('student_number') or clean_row.get('studentnumber1'))
+        
+        sname = (clean_row.get('student_name') or clean_row.get('name') or 
+                 clean_row.get('student name') or clean_row.get('studentname') or 
+                 clean_row.get('full_name'))
+        
         grade = clean_row.get('grade') or clean_row.get('grade level') or ''
-        absent_val = clean_row.get('days_absent') or clean_row.get('absences') or clean_row.get('days absent') or '0'
-        unexcused_val = clean_row.get('unexcused_absences') or clean_row.get('unexcused') or clean_row.get('unexcused absences') or clean_row.get('unexcused days') or '0'
-        total_val = clean_row.get('total_days') or clean_row.get('membership_days') or clean_row.get('total days') or '180'
+        
+        absent_val = (clean_row.get('days_absent') or clean_row.get('absences') or 
+                      clean_row.get('days absent') or clean_row.get('currentschoolabsences7') or '0')
+                      
+        unexcused_val = (clean_row.get('unexcused_absences') or clean_row.get('unexcused') or 
+                         clean_row.get('unexcused absences') or clean_row.get('unexcusedabsences') or '0')
+                         
+        total_val = (clean_row.get('total_days') or clean_row.get('membership_days') or 
+                     clean_row.get('total days') or clean_row.get('currentschoolmembershipdays11') or '180')
 
         if not sid or not sname:
             continue
