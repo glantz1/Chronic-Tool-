@@ -174,27 +174,7 @@ def assign_school():
         return jsonify({"message": f"Successfully assigned school to {user_to_update.email}"})
     return render_template('index.html')  # or return redirect(url_for('index')))
 
-@app.route('/admin/users', methods=['POST'])
-def add_user():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    user = User.query.get(session['user_id'])
-    if user.role != 'admin':
-        return jsonify({"error": "Admin access required"}), 403
-    data = request.get_json() or {}
-    email = data.get('email', '').strip().lower()
-    password = data.get('password', '')
-    role = data.get('role', 'staff')
-    school_id = data.get('school_id') or None
-    if not email or not password:
-        return jsonify({"error": "Email and password are required"}), 400
-    if User.query.filter_by(email=email).first():
-        return jsonify({"error": "User with this email already exists"}), 400
-    new_user = User(email=email, role=role, school_id=school_id)
-    new_user.set_password(password)
-    db.session.add(new_user)
-    db.session.commit()
-    return jsonify({"message": "User created successfully"})
+
 
 @app.route('/students', methods=['GET'])
 def get_students():
