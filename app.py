@@ -139,22 +139,40 @@ def get_schools():
     return jsonify({"schools": [{"id": s.id, "name": s.name} for s in schools]})
 
 @app.route('/admin/assign-school', methods=['GET', 'POST'])
-def add_school():
+def assign_school():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
-    user = User.query.get(session['user_id'])
-    if user.role != 'admin':
+    current_user = User.query.get(session['user_id'])
+    if current_user.role != 'admin':
         return jsonify({"error": "Admin access required"}), 403
-    data = request.get_json() or {}
-    name = data.get('name', '').strip()
-    if not name:
-        return jsonify({"error": "School name is required"}), 400
-    if School.query.filter_by(name=name).first():
-        return jsonify({"error": "School already exists"}), 400
-    school = School(name=name)
-    db.session.add(school)
+
+    if request.method == 'GET':
+        return jsonify({"message": "Send a POST request with user_id and school_id."})
+
+    # Read from JSON if Content-Type is application/json, otherwise read from HTML Form data
+    data = request.get_json(silent=True) or request.form
+    target_user_id = data.get('user_id')
+    school_id = data.get('school_id')
+
+    if not target_user_id:
+        return jsonify({"error": "user_id is required"}), 400
+
+    user_to_update = User.query.get(target_user_id)
+    if not user_to_update:
+        return jsonify({"error": "User not found"}), 404
+
+    # Convert school_id to int or set to None if cleared
+    try:
+        user_to_update.school_id = int(school_id) if school_id else None
+    except (ValueError, TypeError):
+        user_to_update.school_id = None
+
     db.session.commit()
-    return jsonify({"message": "School added successfully", "school": {"id": school.id, "name": school.name}})
+
+    # Return JSON response for API/fetch calls, or redirect back if using HTML Form
+    if request.is_json:
+        return jsonify({"message": f"Successfully assigned school to {user_to_update.email}"})
+    return render_template('index.html')  # or return redirect(url_for('index')))
 
 @app.route('/admin/users', methods=['POST'])
 def add_user():
