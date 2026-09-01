@@ -187,22 +187,34 @@ def get_students():
     chronic_only = request.args.get('chronic', 'false').lower() == 'true'
    processed = 0
     for row in records:
-        clean_row = {k.strip().lower().replace(' ', '_'): str(v).strip() for k, v in row.items() if k}
+        # Standardize key format (lowercase and stripped)
+        clean_row = {k.strip().lower(): str(v).strip() for k, v in row.items() if k}
         
-        # Expanded fallbacks for Student ID
+        # Student ID mappings (adds studentnumber, student_number)
         sid = (clean_row.get('student_id') or clean_row.get('id') or 
-               clean_row.get('student_number') or clean_row.get('student_no') or 
-               clean_row.get('state_id'))
+               clean_row.get('student id') or clean_row.get('studentnumber') or 
+               clean_row.get('student_number') or clean_row.get('studentnumber1'))
         
-        # Expanded fallbacks for Student Name
+        # Student Name mappings (adds studentname)
         sname = (clean_row.get('student_name') or clean_row.get('name') or 
-                 clean_row.get('full_name') or 
-                 (f"{clean_row.get('first_name', '')} {clean_row.get('last_name', '')}".strip()))
+                 clean_row.get('student name') or clean_row.get('studentname') or 
+                 clean_row.get('full_name'))
         
-        grade = clean_row.get('grade') or clean_row.get('grade_level') or ''
-        absent_val = clean_row.get('days_absent') or clean_row.get('absences') or clean_row.get('days_absent_total') or '0'
-        unexcused_val = clean_row.get('unexcused_absences') or clean_row.get('unexcused') or clean_row.get('unexcused_days') or '0'
-        total_val = clean_row.get('total_days') or clean_row.get('membership_days') or '180'
+        # Grade mapping
+        grade = clean_row.get('grade') or clean_row.get('grade level') or ''
+        
+        # Absence & Membership mappings (adds SIS specific column names)
+        absent_val = (clean_row.get('days_absent') or clean_row.get('absences') or 
+                      clean_row.get('days absent') or clean_row.get('currentschoolabsences7') or '0')
+                      
+        unexcused_val = (clean_row.get('unexcused_absences') or clean_row.get('unexcused') or 
+                         clean_row.get('unexcused absences') or clean_row.get('unexcusedabsences') or '0')
+                         
+        total_val = (clean_row.get('total_days') or clean_row.get('membership_days') or 
+                     clean_row.get('total days') or clean_row.get('currentschoolmembershipdays11') or '180')
+
+        if not sid or not sname:
+            continue
 
         if not sid or not sname or sname == " ":
             continue
