@@ -406,6 +406,27 @@ def export_interventions():
         as_attachment=True,
         download_name=f'interventions_export_school_{school_id}.csv'
     )
+@app.route('/admin/assign-school', methods=['POST'])
+def assign_school():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    current_user = User.query.get(session['user_id'])
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
 
+    data = request.get_json() or {}
+    target_user_id = data.get('user_id')
+    school_id = data.get('school_id')
+
+    if not target_user_id:
+        return jsonify({"error": "user_id is required"}), 400
+
+    user_to_update = User.query.get(target_user_id)
+    if not user_to_update:
+        return jsonify({"error": "User not found"}), 404
+
+    user_to_update.school_id = school_id
+    db.session.commit()
+    return jsonify({"message": f"Successfully updated school for user {user_to_update.email}"})
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
