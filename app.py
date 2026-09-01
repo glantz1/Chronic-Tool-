@@ -88,9 +88,14 @@ class School(db.Model):
     __tablename__ = "schools"
     id: db.Mapped[int] = db.mapped_column(db.Integer, primary_key=True)
     name: db.Mapped[str] = db.mapped_column(db.String(120), unique=True, nullable=False)
+    
+    # Ownership: Links a school directly to the owner/creator user for isolation
+    owner_id: db.Mapped[int | None] = db.mapped_column(
+        db.Integer, db.ForeignKey("users.id"), nullable=True
+    )
 
     users = db.relationship(
-        "User", backref="school", lazy=True, cascade="all, delete-orphan"
+        "User", backref="school", lazy=True, cascade="all, delete-orphan", foreign_keys="User.school_id"
     )
     students = db.relationship(
         "Student", backref="school", lazy=True, cascade="all, delete-orphan"
@@ -252,7 +257,7 @@ def current_user():
 
 
 # ------------------------------------------------------------------------------
-# DATA & SCHOOL API ROUTES
+# DATA & SCHOOL API ROUTES (ISOLATED)
 # ------------------------------------------------------------------------------
 @app.route("/schools", methods=["GET"])
 @login_required
@@ -261,14 +266,19 @@ def get_schools():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
+    # Super Admin sees everything; Regular users only see schools assigned to them/owned by them
     if user.role == "admin":
         schools = db.session.scalars(db.select(School)).all()
     elif user.school_id:
         schools = db.session.scalars(
-            db.select(School).filter_by(id=user.school_id)
+            db.select(School).filter(
+                (School.id == user.school_id) | (School.owner_id == user.id)
+            )
         ).all()
     else:
-        schools = []
+        schools = db.session.scalars(
+            db.select(School).filter_by(owner_id=user.id)
+        ).all()
 
     return jsonify({"schools": [{"id": s.id, "name": s.name} for s in schools]})
 
@@ -280,12 +290,13 @@ def reset_school_data(school_id: int):
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    if user.role != "admin" and user.school_id != school_id:
-        return jsonify({"error": "Unauthorized to modify this school"}), 403
-
     school = db.session.get(School, school_id)
     if not school:
         return jsonify({"error": "School not found"}), 404
+
+    # Data safety check: prevent users from overwriting/clearing other users' schools
+    if user.role != "admin" and user.school_id != school_id and school.owner_id != user.id:
+        return jsonify({"error": "Unauthorized to modify this school"}), 403
 
     try:
         students = db.session.scalars(
@@ -326,7 +337,10 @@ def get_students():
     if not school_id and user.school_id:
         school_id = user.school_id
 
-    if user.role != "admin" and user.school_id != school_id:
+    school = db.session.get(School, school_id) if school_id else None
+
+    # Isolation Check
+    if user.role != "admin" and user.school_id != school_id and getattr(school, 'owner_id', None) != user.id:
         return jsonify({"error": "Access denied to this school"}), 403
 
     all_students = db.session.scalars(
@@ -408,6 +422,13 @@ def upload_data():
     school_id = request.form.get("school_id", type=int)
     if "file" not in request.files or not school_id:
         return jsonify({"error": "File and school_id are required"}), 400
+
+    user = db.session.get(User, session["user_id"])
+    school = db.session.get(School, school_id)
+
+    # Protect user data against unauthorized overrides
+    if user.role != "admin" and user.school_id != school_id and getattr(school, 'owner_id', None) != user.id:
+        return jsonify({"error": "Unauthorized to upload data to this school"}), 403
 
     file = request.files["file"]
     filename = (file.filename or "").lower()
@@ -631,7 +652,7 @@ def create_school():
     if db.session.scalar(db.select(School).filter_by(name=name)):
         return jsonify({"error": "School already exists"}), 400
 
-    school = School(name=name)
+    school = School(name=name, owner_id=session["user_id"])
     db.session.add(school)
     db.session.commit()
     return jsonify({"message": "School created successfully"})
