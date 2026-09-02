@@ -8,10 +8,13 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'default-dev-secret-key-change-me')
 
-# Database Configuration (PostgreSQL on Railway with local SQLite fallback)
+# --- DATABASE CONFIGURATION ---
 db_url = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
+
+# Fix legacy Railway PostgreSQL connection scheme
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
+
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -59,7 +62,7 @@ class Intervention(db.Model):
     notes = db.Column(db.Text, nullable=True)
     logged_by_email = db.Column(db.String(120), nullable=True)
 
-# Database Initialization
+# --- DATABASE INITIALIZATION & VERIFICATION ---
 def init_db():
     db.create_all()
     try:
@@ -77,6 +80,11 @@ def init_db():
 
 with app.app_context():
     init_db()
+    # Console output to confirm PostgreSQL host connection in deployment logs
+    masked_db = app.config['SQLALCHEMY_DATABASE_URI'].split('@')[-1]
+    print(f"==================================================")
+    print(f"--> ACTIVE DATABASE BACKEND: {masked_db}")
+    print(f"==================================================")
 
 # --- ROUTES ---
 @app.route('/')
