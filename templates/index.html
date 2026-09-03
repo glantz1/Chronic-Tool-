@@ -220,6 +220,66 @@
         </div>
     </div>
 
+    <!-- Modal: Interventions & Actions -->
+    <div id="interventionModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-xl p-6 w-full max-w-2xl shadow-xl border max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-start mb-4 border-b pb-3">
+                <div>
+                    <h3 id="interStudentName" class="text-xl font-bold text-slate-800"></h3>
+                    <p id="interStudentMeta" class="text-xs text-slate-500 font-medium mt-0.5"></p>
+                </div>
+                <button onclick="toggleModal('interventionModal')" class="text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+
+            <!-- Log Intervention Form -->
+            <form onsubmit="handleSaveIntervention(event)" class="bg-indigo-50/50 p-4 rounded-lg border border-indigo-100 mb-6 space-y-3">
+                <h4 class="text-sm font-semibold text-indigo-900 flex items-center">
+                    <i class="fa-solid fa-pen-to-square mr-1.5"></i> Log New Intervention Action
+                </h4>
+                <input type="hidden" id="interStudentDbId">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Date</label>
+                        <input type="date" id="interDate" required class="w-full px-3 py-1.5 border rounded-lg text-sm bg-white">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Action / Strategy Type</label>
+                        <select id="interType" required class="w-full px-3 py-1.5 border rounded-lg text-sm bg-white">
+                            <option value="Parent Phone Call">Parent Phone Call</option>
+                            <option value="Student Conference">Student Conference</option>
+                            <option value="Parent Meeting / Conference">Parent Meeting / Conference</option>
+                            <option value="Attendance Contract Signed">Attendance Contract Signed</option>
+                            <option value="Home Visit">Home Visit</option>
+                            <option value="Counseling Referral">Counseling Referral</option>
+                            <option value="Official Warning Letter Sent">Official Warning Letter Sent</option>
+                            <option value="Truancy Diversion Referral">Truancy Diversion Referral</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Details & Meeting Notes</label>
+                    <textarea id="interNotes" rows="2" placeholder="Record discussion outcomes or next steps..." class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
+                </div>
+                <div id="interError" class="text-red-600 text-xs hidden"></div>
+                <div class="flex justify-end">
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded-lg font-medium transition flex items-center">
+                        <i class="fa-solid fa-floppy-disk mr-1.5"></i> Save Action Log
+                    </button>
+                </div>
+            </form>
+
+            <!-- Intervention History -->
+            <div class="overflow-y-auto flex-grow">
+                <h4 class="text-sm font-semibold text-slate-700 mb-3">Logged Intervention History</h4>
+                <div id="interventionHistoryList" class="space-y-3">
+                    <!-- Dynamic timeline entries -->
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         let currentUser = null;
 
@@ -324,6 +384,15 @@
             document.getElementById('statChronic').textContent = data.chronic_count || 0;
             document.getElementById('statRate').textContent = `${data.chronic_rate_pct || 0}%`;
 
+            // Populate Grade Filter options dynamically if not already populated
+            const gradeSelect = document.getElementById('gradeFilter');
+            const currentGradeSelection = gradeSelect.value;
+            gradeSelect.innerHTML = '<option value="">All Grades</option>';
+            (data.available_grades || []).forEach(g => {
+                const selected = g === currentGradeSelection ? 'selected' : '';
+                gradeSelect.innerHTML += `<option value="${g}" ${selected}>Grade ${g}</option>`;
+            });
+
             const tbody = document.getElementById('studentTableBody');
             tbody.innerHTML = '';
 
@@ -332,19 +401,104 @@
                     ? `<span class="bg-red-100 text-red-700 text-xs px-2.5 py-1 rounded-full font-semibold">Chronic</span>`
                     : `<span class="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-semibold">On Track</span>`;
 
-                tbody.innerHTML += `
-                    <tr class="hover:bg-slate-50 transition">
-                        <td class="p-3.5 font-medium text-slate-700">${s.student_id}</td>
-                        <td class="p-3.5 font-bold text-slate-800">${s.student_name}</td>
-                        <td class="p-3.5">${s.grade || '-'}</td>
-                        <td class="p-3.5 text-center font-semibold text-slate-800">${s.days_absent}</td>
-                        <td class="p-3.5 text-center text-amber-600 font-semibold">${s.unexcused_absences}</td>
-                        <td class="p-3.5 text-center font-bold text-slate-800">${s.attendance_rate_pct}%</td>
-                        <td class="p-3.5 text-center">${statusBadge}</td>
-                        <td class="p-3.5 text-right font-medium text-slate-600">${s.interventions_count} logged</td>
-                    </tr>
+                const row = document.createElement('tr');
+                row.className = "hover:bg-indigo-50/50 cursor-pointer transition";
+                row.onclick = () => openInterventionModal(s);
+                
+                row.innerHTML = `
+                    <td class="p-3.5 font-medium text-slate-700">${s.student_id}</td>
+                    <td class="p-3.5 font-bold text-slate-800">${s.student_name}</td>
+                    <td class="p-3.5">${s.grade || '-'}</td>
+                    <td class="p-3.5 text-center font-semibold text-slate-800">${s.days_absent}</td>
+                    <td class="p-3.5 text-center text-amber-600 font-semibold">${s.unexcused_absences}</td>
+                    <td class="p-3.5 text-center font-bold text-slate-800">${s.attendance_rate_pct}%</td>
+                    <td class="p-3.5 text-center">${statusBadge}</td>
+                    <td class="p-3.5 text-right font-medium text-indigo-600">
+                        <span class="bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg text-xs font-semibold">
+                            <i class="fa-solid fa-clipboard-list mr-1"></i> ${s.interventions_count} logged
+                        </span>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        async function openInterventionModal(student) {
+            document.getElementById('interStudentDbId').value = student.db_id;
+            document.getElementById('interStudentName').textContent = student.student_name;
+            document.getElementById('interStudentMeta').textContent = `ID: ${student.student_id} | Grade: ${student.grade || 'N/A'} | Absences: ${student.days_absent} | Attendance: ${student.attendance_rate_pct}%`;
+            
+            // Set default date to today
+            document.getElementById('interDate').value = new Date().toISOString().split('T')[0];
+            document.getElementById('interNotes').value = '';
+            document.getElementById('interError').classList.add('hidden');
+
+            toggleModal('interventionModal');
+            await loadInterventionHistory(student.db_id);
+        }
+
+        async function loadInterventionHistory(studentDbId) {
+            const listDiv = document.getElementById('interventionHistoryList');
+            listDiv.innerHTML = '<p class="text-xs text-slate-400">Loading history...</p>';
+
+            const res = await fetch(`/interventions?student_db_id=${studentDbId}`);
+            if (!res.ok) {
+                listDiv.innerHTML = '<p class="text-xs text-red-500">Failed to load intervention history.</p>';
+                return;
+            }
+
+            const data = await res.json();
+            listDiv.innerHTML = '';
+
+            if (!data.interventions || data.interventions.length === 0) {
+                listDiv.innerHTML = '<p class="text-xs text-slate-400 italic">No interventions recorded yet for this student.</p>';
+                return;
+            }
+
+            data.interventions.forEach(item => {
+                listDiv.innerHTML += `
+                    <div class="bg-slate-50 border border-slate-200 p-3 rounded-lg text-xs space-y-1">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-slate-800">${item.type}</span>
+                            <span class="text-slate-400 font-medium">${item.date}</span>
+                        </div>
+                        <p class="text-slate-600">${item.notes || '<span class="italic text-slate-400">No additional notes provided.</span>'}</p>
+                        <div class="text-[10px] text-indigo-600 font-medium text-right pt-1">Logged by: ${item.logged_by}</div>
+                    </div>
                 `;
             });
+        }
+
+        async function handleSaveIntervention(e) {
+            e.preventDefault();
+            const studentDbId = document.getElementById('interStudentDbId').value;
+            const date = document.getElementById('interDate').value;
+            const type = document.getElementById('interType').value;
+            const notes = document.getElementById('interNotes').value;
+            const errDiv = document.getElementById('interError');
+
+            errDiv.classList.add('hidden');
+
+            const res = await fetch('/interventions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    student_db_id: studentDbId,
+                    date: date,
+                    type: type,
+                    notes: notes
+                })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+                document.getElementById('interNotes').value = '';
+                await loadInterventionHistory(studentDbId);
+                await loadDashboard(); // Update row count dynamically
+            } else {
+                errDiv.textContent = data.error || "Failed to log intervention.";
+                errDiv.classList.remove('hidden');
+            }
         }
 
         function openUploadModal() {
