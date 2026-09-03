@@ -1,52 +1,37 @@
 import os
-import re
-import io
 import csv
-from flask import Flask, request, jsonify, render_template, session, send_file
+import io
+from datetime import datetime
+from flask import (
+    Flask, render_template, request, jsonify, 
+    redirect, url_for, flash, session
+)
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 
+# ==========================================
+# APP & DATABASE CONFIGURATION
+# ==========================================
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'default-dev-secret-key-change-me')
-
-# --- DATABASE CONFIGURATION ---
-raw_db_url = os.environ.get('DATABASE_URL') or os.environ.get('DATABASE_URLpostgresql') or ''
-
-db_url = str(raw_db_url).strip().strip('"').strip("'")
-
-# Clean duplicate keys or stray characters
-if 'DATABASE_URL=' in db_url:
-    db_url = db_url.replace('DATABASE_URL=', '')
-if 'postgresql="' in db_url:
-    db_url = db_url.replace('postgresql="', 'postgresql://')
-
-db_url = db_url.replace('"', '').replace("'", "")
-
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
-
-if not db_url or db_url.startswith("${{") or "://" not in db_url:
-    print("--> WARNING: Invalid database URL. Falling back to local SQLite.")
-    db_url = 'sqlite:///attendance.db'
-
-app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# --- MODELS ---
-class School(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False, unique=True)
-    users = db.relationship('User', backref='school', lazy=True)
-    students = db.relationship('Student', backref='school', lazy=True, cascade="all, delete-orphan")
+# Tardy conversion rule (e.g., 3 tardies = 1 absent day, or adjust to 0.25 per tardy)
+TARDY_CONVERSION_FACTOR = 3  # 3 tardies equal 1 full day absent
 
+# ==========================================
+# DATABASE MODELS
+# ==========================================
 class User(db.Model):
+    __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(256), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='staff')
-    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)
+    school_id = db.Column(db.Integer, nullable=False, default=1)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -54,465 +39,283 @@ class User(db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
+
 class Student(db.Model):
+    __tablename__ = 'students'
     id = db.Column(db.Integer, primary_key=True)
-    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=False)
+    school_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     student_id = db.Column(db.String(50), nullable=False)
     student_name = db.Column(db.String(100), nullable=False)
     grade = db.Column(db.String(20), nullable=True)
-    days_absent = db.Column(db.Float, default=0.0)
+    
+    # Raw Attendance Inputs
+    enrolled_days = db.Column(db.Float, default=180.0)
+    full_day_absences = db.Column(db.Float, default=0.0)
+    half_days = db.Column(db.Float, default=0.0)
+    tardies = db.Column(db.Integer, default=0)
     unexcused_absences = db.Column(db.Float, default=0.0)
-    total_days = db.Column(db.Float, default=0.0)
-    attendance_rate = db.Column(db.Float, default=100.0)
-    is_chronic = db.Column(db.Boolean, default=False)
-    interventions = db.relationship('Intervention', backref='student', lazy=True, cascade="all, delete-orphan")
+    
+    # Calculated Fields
+    total_effective_absences = db.Column(db.Float, default=0.0)
+    days_absent = db.Column(db.Float, default=0.0)  # Standard display total
+    attendance_rate_pct = db.Column(db.Float, nullable=False, default=100.0, index=True)
+
+    interventions = db.relationship('Intervention', backref='student', cascade='all, delete-orphan')
+
+    def calculate_metrics(self):
+        """Calculates total effective absences including half-days and tardies, then updates attendance_rate_pct."""
+        # 1. Convert partial days to full-day equivalents
+        tardy_days = (self.tardies / TARDY_CONVERSION_FACTOR) if TARDY_CONVERSION_FACTOR > 0 else 0.0
+        half_day_equivalents = self.half_days * 0.5
+        
+        # 2. Total lost instructional time in days
+        self.total_effective_absences = round(self.full_day_absences + half_day_equivalents + tardy_days, 2)
+        self.days_absent = self.total_effective_absences
+        
+        # 3. Calculate percentage (0 - 100%)
+        if self.enrolled_days > 0:
+            rate = ((self.enrolled_days - self.total_effective_absences) / self.enrolled_days) * 100.0
+            self.attendance_rate_pct = max(0.0, min(100.0, round(rate, 2)))
+        else:
+            self.attendance_rate_pct = 100.0
+
 
 class Intervention(db.Model):
+    __tablename__ = 'interventions'
     id = db.Column(db.Integer, primary_key=True)
-    student_id = db.Column(db.Integer, db.ForeignKey('student.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
-    date = db.Column(db.String(20), nullable=False)
-    type = db.Column(db.String(100), nullable=False)
+    student_db_id = db.Column(db.Integer, db.ForeignKey('students.id'), nullable=False)
+    date_logged = db.Column(db.DateTime, default=datetime.utcnow)
+    intervention_type = db.Column(db.String(100), nullable=False)
     notes = db.Column(db.Text, nullable=True)
-    logged_by_email = db.Column(db.String(120), nullable=True)
 
-# --- DATABASE INITIALIZATION ---
-def init_db():
-    db.create_all()
-    try:
-        if not User.query.filter_by(role='admin').first():
-            default_admin = User(email='admin@school.edu', role='admin')
-            default_admin.set_password('AdminPass123!')
-            db.session.add(default_admin)
-            db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        print(f"--> Database init warning: {e}")
 
-with app.app_context():
-    init_db()
-    masked_db = app.config['SQLALCHEMY_DATABASE_URI'].split('@')[-1]
-    print(f"==================================================")
-    print(f"--> ACTIVE DATABASE BACKEND: {masked_db}")
-    print(f"==================================================")
+# ==========================================
+# AUTHENTICATION DECORATOR
+# ==========================================
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated_function
 
-# --- ROUTES ---
+
+# ==========================================
+# ROUTES & CONTROLLERS
+# ==========================================
+
 @app.route('/')
 def index():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     return render_template('index.html')
 
-@app.route('/me', methods=['GET'])
-def me():
-    if 'user_id' not in session:
-        return jsonify({"logged_in": False})
-    user = User.query.get(session['user_id'])
-    if not user:
-        session.clear()
-        return jsonify({"logged_in": False})
-    return jsonify({
-        "logged_in": True,
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "role": user.role,
-            "school_id": user.school_id
-        }
-    })
 
-@app.route('/login', methods=['POST'])
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    data = request.get_json(silent=True) or request.form
-    email = data.get('email', '').strip().lower()
-    password = data.get('password', '')
-    user = User.query.filter_by(email=email).first()
-    if user and user.check_password(password):
-        session['user_id'] = user.id
-        return jsonify({
-            "message": "Login successful",
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "role": user.role,
-                "school_id": user.school_id
-            }
-        })
-    return jsonify({"error": "Invalid email or password"}), 401
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        user = User.query.filter_by(username=username).first()
 
-@app.route('/logout', methods=['POST'])
+        if user and user.check_password(password):
+            session['user_id'] = user.id
+            session['school_id'] = user.school_id
+            session['username'] = user.username
+            return redirect(url_for('index'))
+        else:
+            flash('Invalid username or password', 'danger')
+
+    return render_template('login.html')
+
+
+@app.route('/logout')
 def logout():
     session.clear()
-    return jsonify({"message": "Logged out successfully"})
+    return redirect(url_for('login'))
 
-@app.route('/schools', methods=['GET'])
-def get_schools():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    user = User.query.get(session['user_id'])
-    if not user:
-        return jsonify({"error": "Session expired"}), 401
 
-    if user.role == 'admin':
-        schools = School.query.order_by(School.name.asc()).all()
-    else:
-        schools = School.query.filter_by(id=user.school_id).all() if user.school_id else []
-    
-    return jsonify({"schools": [{"id": s.id, "name": s.name} for s in schools]})
-
-@app.route('/admin/schools', methods=['POST'])
-def add_school():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    user = User.query.get(session['user_id'])
-    if not user or user.role != 'admin':
-        return jsonify({"error": "Admin access required"}), 403
-
-    data = request.get_json(silent=True) or request.form
-    name = (data.get('name') or data.get('school_name') or '').strip()
-
-    if not name:
-        return jsonify({"error": "School name is required"}), 400
-
-    existing = School.query.filter(School.name.ilike(name)).first()
-    if existing:
-        return jsonify({"error": "A school with this name already exists"}), 400
-
-    try:
-        new_school = School(name=name)
-        db.session.add(new_school)
-        db.session.commit()
-        return jsonify({
-            "message": "School added successfully",
-            "school": {"id": new_school.id, "name": new_school.name}
-        })
-    except Exception as e:
-        db.session.rollback()
-        print(f"--> Error adding school: {str(e)}")
-        return jsonify({"error": "Failed to save school to database"}), 500
-
-@app.route('/admin/users', methods=['GET', 'POST'])
-def handle_users():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    current_user = User.query.get(session['user_id'])
-    if not current_user or current_user.role != 'admin':
-        return jsonify({"error": "Admin access required"}), 403
-
-    if request.method == 'GET':
-        users = User.query.all()
-        return jsonify({
-            "users": [
-                {
-                    "id": u.id,
-                    "email": u.email,
-                    "role": u.role,
-                    "school_id": u.school_id,
-                    "school_name": u.school.name if u.school else "Unassigned"
-                } for u in users
-            ]
-        })
-
-    data = request.get_json(silent=True) or request.form
-    email = data.get('email', '').strip().lower()
-    password = data.get('password', '')
-    role = data.get('role', 'staff')
-    school_id = data.get('school_id') or None
-
-    if not email or not password:
-        return jsonify({"error": "Email and password are required"}), 400
-    if User.query.filter_by(email=email).first():
-        return jsonify({"error": "User with this email already exists"}), 400
-
-    try:
-        new_user = User(email=email, role=role, school_id=school_id)
-        new_user.set_password(password)
-        db.session.add(new_user)
-        db.session.commit()
-        return jsonify({"message": "User created successfully"})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": f"Failed to create user: {str(e)}"}), 500
-
-@app.route('/admin/users/<int:user_id>', methods=['DELETE'])
-def delete_user(user_id):
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    current_user = User.query.get(session['user_id'])
-    if not current_user or current_user.role != 'admin':
-        return jsonify({"error": "Admin access required"}), 403
-
-    if current_user.id == user_id:
-        return jsonify({"error": "You cannot delete your own account while logged in."}), 400
-
-    user_to_delete = User.query.get(user_id)
-    if not user_to_delete:
-        return jsonify({"error": "User not found."}), 404
-
-    interventions = Intervention.query.filter_by(user_id=user_id).all()
-    for item in interventions:
-        item.user_id = None
-
-    db.session.delete(user_to_delete)
-    db.session.commit()
-    return jsonify({"message": f"Successfully deleted user {user_to_delete.email}."})
-
-@app.route('/admin/assign-school', methods=['GET', 'POST'])
-def assign_school():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    current_user = User.query.get(session['user_id'])
-    if not current_user or current_user.role != 'admin':
-        return jsonify({"error": "Admin access required"}), 403
-
-    data = request.get_json(silent=True) or request.form
-    target_user_id = data.get('user_id')
-    school_id = data.get('school_id')
-
-    if not target_user_id:
-        return jsonify({"error": "user_id is required"}), 400
-
-    user_to_update = User.query.get(target_user_id)
-    if not user_to_update:
-        return jsonify({"error": "User not found"}), 404
-
-    try:
-        user_to_update.school_id = int(school_id) if school_id else None
-        db.session.commit()
-        return jsonify({"message": f"Successfully assigned school to {user_to_update.email}"})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/students', methods=['GET'])
+# ------------------------------------------
+# MAIN API ROUTE: STUDENTS & ANALYTICS
+# ------------------------------------------
+@app.route('/api/students', methods=['GET'])
+@login_required
 def get_students():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    school_id = request.args.get('school_id', type=int)
-    search = request.args.get('search', '').strip().lower()
+    school_id = session.get('school_id', 1)
+    
+    # Query Parameters
+    search = request.args.get('search', '').strip()
     grade = request.args.get('grade', '').strip()
+    sort_by = request.args.get('sort', 'rate_asc')
     chronic_only = request.args.get('chronic', 'false').lower() == 'true'
-    sort_by = request.args.get('sort', 'absences_desc')
 
-    if not school_id:
-        return jsonify({"error": "school_id query param is required"}), 400
+    # Base query for this user's school
+    query = Student.query.filter(Student.school_id == school_id)
 
-    query = Student.query.filter_by(school_id=school_id)
-    all_school_students = query.all()
-
-    total_enrolled = len(all_school_students)
-    chronic_count = len([s for s in all_school_students if s.is_chronic])
-    chronic_rate_pct = round((chronic_count / total_enrolled * 100), 1) if total_enrolled > 0 else 0.0
-
-    available_grades = sorted(list(set(s.grade for s in all_school_students if s.grade)))
-
+    # 1. Search Filter (Name or ID)
     if search:
-        query = query.filter((Student.student_name.ilike(f"%{search}%")) | (Student.student_id.ilike(f"%{search}%")))
-    if grade:
-        query = query.filter_by(grade=grade)
-    if chronic_only:
-        query = query.filter_by(is_chronic=True)
+        query = query.filter(
+            db.or_(
+                Student.student_name.ilike(f"%{search}%"),
+                Student.student_id.ilike(f"%{search}%")
+            )
+        )
 
-    if sort_by == 'absences_desc':
-        query = query.order_by(Student.days_absent.desc())
-    elif sort_by == 'absences_asc':
-        query = query.order_by(Student.days_absent.asc())
-    elif sort_by == 'unexcused_desc':
-        query = query.order_by(Student.unexcused_absences.desc())
-    elif sort_by == 'rate_asc':
-        query = query.order_by(Student.attendance_rate.asc())
+    # 2. Grade Level Filter
+    if grade:
+        query = query.filter(Student.grade == grade)
+
+    # 3. CHRONIC ABSENCE FILTER: Strictly < 90% Attendance Rate
+    # Includes half-days, tardies, and full absences automatically
+    if chronic_only:
+        query = query.filter(Student.attendance_rate_pct < 90.0)
+
+    # 4. Sorting
+    if sort_by == 'rate_asc':
+        query = query.order_by(Student.attendance_rate_pct.asc())
     elif sort_by == 'rate_desc':
-        query = query.order_by(Student.attendance_rate.desc())
+        query = query.order_by(Student.attendance_rate_pct.desc())
+    elif sort_by == 'absences_desc':
+        query = query.order_by(Student.total_effective_absences.desc())
     elif sort_by == 'name_asc':
         query = query.order_by(Student.student_name.asc())
-    elif sort_by == 'name_desc':
-        query = query.order_by(Student.student_name.desc())
 
+    # Execute main list query WITHOUT pagination limits (returns full list)
     filtered_students = query.all()
 
+    # 5. Calculate Global School Metrics (for summary cards)
+    all_school_students = Student.query.filter(Student.school_id == school_id).all()
+    total_enrolled = len(all_school_students)
+    
+    # Count strictly below 90% across the whole school
+    chronic_students_count = sum(1 for s in all_school_students if s.attendance_rate_pct < 90.0)
+    chronic_rate_pct = round((chronic_students_count / total_enrolled * 100.0), 1) if total_enrolled > 0 else 0.0
+
     return jsonify({
-        "total_students": total_enrolled,
-        "chronic_count": chronic_count,
-        "chronic_rate_pct": chronic_rate_pct,
-        "available_grades": available_grades,
-        "students": [
-            {
-                "db_id": s.id,
-                "student_id": s.student_id,
-                "student_name": s.student_name,
-                "grade": s.grade,
-                "days_absent": s.days_absent,
-                "unexcused_absences": getattr(s, 'unexcused_absences', 0.0) or 0.0,
-                "total_days": s.total_days,
-                "attendance_rate_pct": round(s.attendance_rate, 1),
-                "is_chronic": s.is_chronic,
-                "interventions_count": len(s.interventions)
-            } for s in filtered_students
-        ]
+        "metrics": {
+            "total_students": total_enrolled,
+            "chronic_count": chronic_students_count,
+            "chronic_rate_pct": chronic_rate_pct,
+            "available_grades": sorted(list(set(s.grade for s in all_school_students if s.grade)))
+        },
+        "count": len(filtered_students),
+        "students": [{
+            "id": s.id,
+            "student_id": s.student_id,
+            "name": s.student_name,
+            "grade": s.grade,
+            "enrolled_days": s.enrolled_days,
+            "full_day_absences": s.full_day_absences,
+            "half_days": s.half_days,
+            "tardies": s.tardies,
+            "total_effective_absences": s.total_effective_absences,
+            "unexcused_absences": s.unexcused_absences,
+            "attendance_rate_pct": s.attendance_rate_pct,
+            "is_chronic": s.attendance_rate_pct < 90.0,
+            "interventions_count": len(s.interventions)
+        } for s in filtered_students]
     })
 
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    school_id = request.form.get('school_id')
-    if not school_id:
-        return jsonify({"error": "school_id form field is required"}), 400
+
+# ------------------------------------------
+# CSV UPLOAD & AUTOMATIC RATE CALCULATION
+# ------------------------------------------
+@app.route('/api/upload_csv', methods=['POST'])
+@login_required
+def upload_csv():
     if 'file' not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
 
     file = request.files['file']
-    filename = file.filename.lower()
+    if not file.filename.endswith('.csv'):
+        return jsonify({"error": "File must be a CSV"}), 400
 
-    records = []
+    school_id = session.get('school_id', 1)
+    
     try:
-        if filename.endswith('.csv'):
-            stream = io.StringIO(file.stream.read().decode("utf-8-sig"), newline=None)
-            reader = csv.DictReader(stream)
-            records = list(reader)
-        else:
-            return jsonify({"error": "Please upload a CSV file"}), 400
-    except Exception as e:
-        return jsonify({"error": f"Failed to parse CSV file: {str(e)}"}), 400
-
-    processed = 0
-    for row in records:
-        clean_row = {k.strip().lower(): str(v).strip() for k, v in row.items() if k}
+        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+        csv_input = csv.DictReader(stream)
         
-        sid = (clean_row.get('student_id') or clean_row.get('id') or 
-               clean_row.get('student id') or clean_row.get('studentnumber') or 
-               clean_row.get('student_number') or clean_row.get('studentnumber1'))
+        # Standardize CSV headers to lowercase
+        processed_count = 0
         
-        sname = (clean_row.get('student_name') or clean_row.get('name') or 
-                 clean_row.get('student name') or clean_row.get('studentname') or 
-                 clean_row.get('full_name'))
-        
-        grade = clean_row.get('grade') or clean_row.get('grade level') or ''
-        
-        absent_val = (clean_row.get('days_absent') or clean_row.get('absences') or 
-                      clean_row.get('days absent') or clean_row.get('currentschoolabsences7') or '0')
-                      
-        unexcused_val = (clean_row.get('unexcused_absences') or clean_row.get('unexcused') or 
-                         clean_row.get('unexcused absences') or clean_row.get('unexcusedabsences') or '0')
-                         
-        total_val = (clean_row.get('total_days') or clean_row.get('membership_days') or 
-                     clean_row.get('total days') or clean_row.get('currentschoolmembershipdays11') or '180')
+        for row in csv_input:
+            row_clean = {k.strip().lower().replace(" ", "_"): v.strip() for k, v in row.items() if k}
+            
+            s_id = row_clean.get('student_id') or row_clean.get('id')
+            s_name = row_clean.get('student_name') or row_clean.get('name')
+            
+            if not s_id or not s_name:
+                continue
 
-        if not sid or not sname:
-            continue
+            # Find existing or initialize new
+            student = Student.query.filter_by(school_id=school_id, student_id=s_id).first()
+            if not student:
+                student = Student(school_id=school_id, student_id=s_id)
 
-        try:
-            days_absent = float(absent_val)
-            unexcused = float(unexcused_val)
-            total_days = float(total_val)
-        except ValueError:
-            continue
+            student.student_name = s_name
+            student.grade = row_clean.get('grade', student.grade or 'N/A')
+            student.enrolled_days = float(row_clean.get('enrolled_days', student.enrolled_days or 180.0))
+            student.full_day_absences = float(row_clean.get('full_absences', row_clean.get('full_day_absences', 0)))
+            student.half_days = float(row_clean.get('half_days', 0))
+            student.tardies = int(float(row_clean.get('tardies', 0)))
+            student.unexcused_absences = float(row_clean.get('unexcused', row_clean.get('unexcused_absences', 0)))
 
-        rate = ((total_days - days_absent) / total_days * 100) if total_days > 0 else 100.0
-        is_chronic = (rate < 90.0) or (days_absent >= 10.0)
+            # Automatically compute total effective absences & attendance_rate_pct
+            student.calculate_metrics()
 
-        student = Student.query.filter_by(school_id=school_id, student_id=sid).first()
-        if not student:
-            student = Student(school_id=school_id, student_id=sid)
             db.session.add(student)
+            processed_count += 1
 
-        student.student_name = sname
-        student.grade = grade
-        student.days_absent = days_absent
-        student.unexcused_absences = unexcused
-        student.total_days = total_days
-        student.attendance_rate = rate
-        student.is_chronic = is_chronic
-        processed += 1
-
-    try:
         db.session.commit()
-        return jsonify({"message": f"Successfully processed {processed} student records!"})
+        return jsonify({"message": f"Successfully processed {processed_count} student records."})
+
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": f"Failed to save CSV records: {str(e)}"}), 500
+        return jsonify({"error": f"Failed to parse CSV: {str(e)}"}), 500
 
-@app.route('/schools/<int:school_id>/reset-data', methods=['DELETE'])
-def reset_school_data(school_id):
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    user = User.query.get(session['user_id'])
-    if not user or user.role != 'admin':
-        return jsonify({"error": "Admin permission required to reset data"}), 403
 
-    students = Student.query.filter_by(school_id=school_id).all()
-    for s in students:
-        db.session.delete(s)
-    db.session.commit()
-    return jsonify({"message": "All student and intervention data cleared for this school."})
+# ------------------------------------------
+# ADD INTERVENTION ROUTE
+# ------------------------------------------
+@app.route('/api/interventions', methods=['POST'])
+@login_required
+def add_intervention():
+    data = request.json or {}
+    student_db_id = data.get('student_db_id')
+    intervention_type = data.get('type')
+    notes = data.get('notes', '')
 
-@app.route('/interventions', methods=['GET', 'POST'])
-def handle_interventions():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    user = User.query.get(session['user_id'])
+    if not student_db_id or not intervention_type:
+        return jsonify({"error": "Missing required fields"}), 400
 
-    if request.method == 'GET':
-        student_db_id = request.args.get('student_db_id', type=int)
-        if not student_db_id:
-            return jsonify({"error": "student_db_id parameter required"}), 400
-        interventions = Intervention.query.filter_by(student_id=student_db_id).order_by(Intervention.id.desc()).all()
-        return jsonify({
-            "interventions": [
-                {
-                    "id": i.id,
-                    "date": i.date,
-                    "type": i.type,
-                    "notes": i.notes,
-                    "logged_by": i.logged_by_email or "Staff"
-                } for i in interventions
-            ]
-        })
-
-    if request.method == 'POST':
-        data = request.get_json(silent=True) or request.form
-        student_db_id = data.get('student_db_id')
-        date = data.get('date')
-        int_type = data.get('type')
-        notes = data.get('notes', '')
-
-        if not student_db_id or not date or not int_type:
-            return jsonify({"error": "Missing required fields"}), 400
-
-        intervention = Intervention(
-            student_id=student_db_id,
-            user_id=user.id if user else None,
-            date=date,
-            type=int_type,
-            notes=notes,
-            logged_by_email=user.email if user else "System"
-        )
-        db.session.add(intervention)
-        db.session.commit()
-        return jsonify({"message": "Intervention saved successfully"})
-
-@app.route('/export/interventions', methods=['GET'])
-def export_interventions():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    school_id = request.args.get('school_id', type=int)
-    if not school_id:
-        return jsonify({"error": "school_id parameter required"}), 400
-
-    students = Student.query.filter_by(school_id=school_id).all()
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(['Student ID', 'Student Name', 'Grade', 'Total Absences', 'Unexcused Absences', 'Attendance Rate %', 'Action Date', 'Action Type', 'Action Details', 'Logged By'])
-
-    for s in students:
-        for i in s.interventions:
-            writer.writerow([s.student_id, s.student_name, s.grade, s.days_absent, s.unexcused_absences, f"{s.attendance_rate:.1f}%", i.date, i.type, i.notes, i.logged_by_email])
-
-    output.seek(0)
-    return send_file(
-        io.BytesIO(output.getvalue().encode('utf-8')),
-        mimetype='text/csv',
-        as_attachment=True,
-        download_name=f'interventions_export_school_{school_id}.csv'
+    intervention = Intervention(
+        student_db_id=student_db_id,
+        intervention_type=intervention_type,
+        notes=notes
     )
+    db.session.add(intervention)
+    db.session.commit()
+
+    return jsonify({"message": "Intervention recorded successfully."})
+
+
+# ==========================================
+# SEED DATABASE / APP INITIALIZATION
+# ==========================================
+def init_db():
+    with app.app_context():
+        db.create_all()
+        # Create default admin user if none exists
+        if not User.query.filter_by(username='admin').first():
+            default_user = User(username='admin', school_id=1)
+            default_user.set_password('admin123')
+            db.session.add(default_user)
+            db.session.commit()
+            print("Default user created: username='admin', password='admin123'")
+
+init_db()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(debug=True, port=5000)
