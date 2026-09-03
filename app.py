@@ -2,26 +2,44 @@ import os
 import csv
 import io
 from datetime import datetime
+from functools import wraps
+from urllib.parse import quote_plus
+
 from flask import (
     Flask, render_template, request, jsonify, 
     redirect, url_for, flash, session
 )
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
-from functools import wraps
 
 # ==========================================
-# APP & DATABASE CONFIGURATION
+# APP INITIALIZATION
 # ==========================================
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
+
+# ==========================================
+# SAFE DATABASE CONFIGURATION (GUNICORN FIX)
+# ==========================================
+raw_db_url = os.environ.get('DATABASE_URL', '').strip()
+
+if not raw_db_url:
+    # Default to local SQLite if env var is missing or empty string
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///attendance.db'
+elif raw_db_url.startswith('postgres://'):
+    # Standardize legacy Postgres scheme for SQLAlchemy 1.4+
+    SQLALCHEMY_DATABASE_URI = raw_db_url.replace('postgres://', 'postgresql://', 1)
+else:
+    SQLALCHEMY_DATABASE_URI = raw_db_url
+
+app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# Tardy conversion rule (e.g., 3 tardies = 1 absent day, or adjust to 0.25 per tardy)
-TARDY_CONVERSION_FACTOR = 3  # 3 tardies equal 1 full day absent
+# Tardy conversion rule (e.g., 3 tardies = 1 full day absent equivalent)
+TARDY_CONVERSION_FACTOR = 3 
+
 
 # ==========================================
 # DATABASE MODELS
@@ -48,7 +66,7 @@ class Student(db.Model):
     student_name = db.Column(db.String(100), nullable=False)
     grade = db.Column(db.String(20), nullable=True)
     
-    # Raw Attendance Inputs
+    # Attendance Inputs
     enrolled_days = db.Column(db.Float, default=180.0)
     full_day_absences = db.Column(db.Float, default=0.0)
     half_days = db.Column(db.Float, default=0.0)
@@ -57,22 +75,19 @@ class Student(db.Model):
     
     # Calculated Fields
     total_effective_absences = db.Column(db.Float, default=0.0)
-    days_absent = db.Column(db.Float, default=0.0)  # Standard display total
+    days_absent = db.Column(db.Float, default=0.0)
     attendance_rate_pct = db.Column(db.Float, nullable=False, default=100.0, index=True)
 
     interventions = db.relationship('Intervention', backref='student', cascade='all, delete-orphan')
 
     def calculate_metrics(self):
-        """Calculates total effective absences including half-days and tardies, then updates attendance_rate_pct."""
-        # 1. Convert partial days to full-day equivalents
+        """Calculates total lost time (full + half + tardies) and updates percentage."""
         tardy_days = (self.tardies / TARDY_CONVERSION_FACTOR) if TARDY_CONVERSION_FACTOR > 0 else 0.0
         half_day_equivalents = self.half_days * 0.5
         
-        # 2. Total lost instructional time in days
         self.total_effective_absences = round(self.full_day_absences + half_day_equivalents + tardy_days, 2)
         self.days_absent = self.total_effective_absences
         
-        # 3. Calculate percentage (0 - 100%)
         if self.enrolled_days > 0:
             rate = ((self.enrolled_days - self.total_effective_absences) / self.enrolled_days) * 100.0
             self.attendance_rate_pct = max(0.0, min(100.0, round(rate, 2)))
@@ -102,7 +117,7 @@ def login_required(f):
 
 
 # ==========================================
-# ROUTES & CONTROLLERS
+# ROUTES
 # ==========================================
 
 @app.route('/')
@@ -137,7 +152,7 @@ def logout():
 
 
 # ------------------------------------------
-# MAIN API ROUTE: STUDENTS & ANALYTICS
+# API: GET STUDENTS & METRICS
 # ------------------------------------------
 @app.route('/api/students', methods=['GET'])
 @login_required
@@ -150,10 +165,9 @@ def get_students():
     sort_by = request.args.get('sort', 'rate_asc')
     chronic_only = request.args.get('chronic', 'false').lower() == 'true'
 
-    # Base query for this user's school
     query = Student.query.filter(Student.school_id == school_id)
 
-    # 1. Search Filter (Name or ID)
+    # 1. Search Filter
     if search:
         query = query.filter(
             db.or_(
@@ -162,12 +176,11 @@ def get_students():
             )
         )
 
-    # 2. Grade Level Filter
+    # 2. Grade Filter
     if grade:
         query = query.filter(Student.grade == grade)
 
-    # 3. CHRONIC ABSENCE FILTER: Strictly < 90% Attendance Rate
-    # Includes half-days, tardies, and full absences automatically
+    # 3. Chronic Absence Filter (STRICTLY BELOW 90.0%)
     if chronic_only:
         query = query.filter(Student.attendance_rate_pct < 90.0)
 
@@ -181,14 +194,12 @@ def get_students():
     elif sort_by == 'name_asc':
         query = query.order_by(Student.student_name.asc())
 
-    # Execute main list query WITHOUT pagination limits (returns full list)
     filtered_students = query.all()
 
-    # 5. Calculate Global School Metrics (for summary cards)
+    # 5. Global School Metrics
     all_school_students = Student.query.filter(Student.school_id == school_id).all()
     total_enrolled = len(all_school_students)
     
-    # Count strictly below 90% across the whole school
     chronic_students_count = sum(1 for s in all_school_students if s.attendance_rate_pct < 90.0)
     chronic_rate_pct = round((chronic_students_count / total_enrolled * 100.0), 1) if total_enrolled > 0 else 0.0
 
@@ -219,7 +230,7 @@ def get_students():
 
 
 # ------------------------------------------
-# CSV UPLOAD & AUTOMATIC RATE CALCULATION
+# API: CSV UPLOAD
 # ------------------------------------------
 @app.route('/api/upload_csv', methods=['POST'])
 @login_required
@@ -236,8 +247,6 @@ def upload_csv():
     try:
         stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
         csv_input = csv.DictReader(stream)
-        
-        # Standardize CSV headers to lowercase
         processed_count = 0
         
         for row in csv_input:
@@ -249,7 +258,6 @@ def upload_csv():
             if not s_id or not s_name:
                 continue
 
-            # Find existing or initialize new
             student = Student.query.filter_by(school_id=school_id, student_id=s_id).first()
             if not student:
                 student = Student(school_id=school_id, student_id=s_id)
@@ -262,7 +270,6 @@ def upload_csv():
             student.tardies = int(float(row_clean.get('tardies', 0)))
             student.unexcused_absences = float(row_clean.get('unexcused', row_clean.get('unexcused_absences', 0)))
 
-            # Automatically compute total effective absences & attendance_rate_pct
             student.calculate_metrics()
 
             db.session.add(student)
@@ -277,7 +284,7 @@ def upload_csv():
 
 
 # ------------------------------------------
-# ADD INTERVENTION ROUTE
+# API: ADD INTERVENTION
 # ------------------------------------------
 @app.route('/api/interventions', methods=['POST'])
 @login_required
@@ -302,18 +309,16 @@ def add_intervention():
 
 
 # ==========================================
-# SEED DATABASE / APP INITIALIZATION
+# INITIALIZATION & STARTUP
 # ==========================================
 def init_db():
     with app.app_context():
         db.create_all()
-        # Create default admin user if none exists
         if not User.query.filter_by(username='admin').first():
             default_user = User(username='admin', school_id=1)
             default_user.set_password('admin123')
             db.session.add(default_user)
             db.session.commit()
-            print("Default user created: username='admin', password='admin123'")
 
 init_db()
 
