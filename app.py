@@ -1,349 +1,260 @@
 import os
 import csv
 import io
-from datetime import datetime
-from functools import wraps
-
-from flask import (
-    Flask, render_template, request, jsonify, 
-    redirect, url_for, flash, session
-)
+from flask import Flask, render_template_string, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.engine import make_url
-from sqlalchemy.exc import ArgumentError
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# ==========================================
-# 1. INITIALIZE FLASK APP
-# ==========================================
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-
-
-# ==========================================
-# 2. BULLETPROOF DATABASE CONFIGURATION
-# ==========================================
-def resolve_database_uri() -> str:
-    """
-    Validates and cleans DATABASE_URL environment variable.
-    Falls back safely to SQLite if missing, empty, or unparseable.
-    """
-    default_uri = 'sqlite:///attendance.db'
-    raw_url = os.environ.get('DATABASE_URL')
-
-    if not raw_url:
-        return default_uri
-
-    # Clean whitespace and surrounding quotes
-    clean_url = str(raw_url).strip().strip('"').strip("'")
-    if not clean_url:
-        return default_uri
-
-    # Fix legacy Postgres scheme (Heroku/Render/older setups)
-    if clean_url.startswith('postgres://'):
-        clean_url = clean_url.replace('postgres://', 'postgresql://', 1)
-
-    # Test if SQLAlchemy can parse the URI; if invalid, fall back safely
-    try:
-        make_url(clean_url)
-        return clean_url
-    except ArgumentError:
-        app.logger.warning(
-            "Invalid DATABASE_URL detected. Falling back to default SQLite database."
-        )
-        return default_uri
-
-
-app.config['SQLALCHEMY_DATABASE_URI'] = resolve_database_uri()
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'default-dev-key-change-in-prod')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///absenteeism.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Initialize SQLAlchemy extension
 db = SQLAlchemy(app)
 
-# Attendance conversion constants
-TARDY_CONVERSION_FACTOR = 3  # e.g., 3 tardies = 1 day absent equivalent
+# Constants
+TARDY_CONVERSION_FACTOR = 3
 
+# --- HTML Templates (Embedded Inline) ---
 
-# ==========================================
-# 3. DATABASE MODELS
-# ==========================================
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Chronic Absenteeism Tracker</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .login-card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 320px; }
+        h2 { margin-top: 0; color: #333; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; margin-bottom: 0.5rem; color: #666; font-size: 0.9rem; }
+        input { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 0.6rem; background: #0066cc; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        button:hover { background: #0052a3; }
+        .alert { background: #ffebee; color: #c62828; padding: 0.5rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h2>Absenteeism Tracker</h2>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+        <form method="POST" action="/login">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <button type="submit">Sign In</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+INDEX_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Chronic Absenteeism Tracker</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 2rem; background: #f8f9fa; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+        .card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 1rem; }
+        .upload-zone { border: 2px dashed #0066cc; padding: 1.5rem; background: #f0f7ff; border-radius: 6px; margin-bottom: 1rem; text-align: center; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; }
+        .badge-warning { background: #fff3cd; color: #856404; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
+        .badge-danger { background: #f8d7da; color: #721c24; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
+        a { color: #dc3545; text-decoration: none; font-weight: bold; }
+        button { background: #0066cc; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Chronic Absenteeism Tracker</h1>
+        <a href="/logout">Logout</a>
+    </div>
+
+    <div class="card">
+        <h3>Upload Attendance CSV</h3>
+        <p><small>CSV columns expected: <code>student_id, name, absences, tardies, total_days</code></small></p>
+        <form method="POST" action="/upload_csv" enctype="multipart/form-data" class="upload-zone">
+            <input type="file" name="file" accept=".csv" required>
+            <button type="submit">Process CSV</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3>Student Attendance Summary</h3>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <p style="color: green; font-weight: bold;">{{ message }}</p>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Student ID</th>
+                    <th>Name</th>
+                    <th>Absences</th>
+                    <th>Tardies</th>
+                    <th>Adjusted Absences</th>
+                    <th>Absenteeism %</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for student in students %}
+                <tr>
+                    <td>{{ student.student_id }}</td>
+                    <td>{{ student.name }}</td>
+                    <td>{{ student.absences }}</td>
+                    <td>{{ student.tardies }}</td>
+                    <td>{{ student.adjusted_absences }}</td>
+                    <td>{{ "%.1f"|format(student.rate) }}%</td>
+                    <td>
+                        {% if student.rate >= 10.0 %}
+                            <span class="badge-danger">At Risk (Chronic)</span>
+                        {% else %}
+                            <span class="badge-warning">Normal</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7">No student record data available. Upload a CSV above.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
+"""
+
+# --- Database Models ---
+
 class User(db.Model):
-    __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(200), nullable=False)
-    school_id = db.Column(db.Integer, nullable=False, default=1)
+    password_hash = db.Column(db.String(256), nullable=False)
 
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-
-
-class Student(db.Model):
-    __tablename__ = 'students'
+class StudentRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    school_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     student_id = db.Column(db.String(50), nullable=False)
-    student_name = db.Column(db.String(100), nullable=False)
-    grade = db.Column(db.String(20), nullable=True)
-    
-    # Attendance Inputs
-    enrolled_days = db.Column(db.Float, default=180.0)
-    full_day_absences = db.Column(db.Float, default=0.0)
-    half_days = db.Column(db.Float, default=0.0)
+    name = db.Column(db.String(100), nullable=False)
+    absences = db.Column(db.Integer, default=0)
     tardies = db.Column(db.Integer, default=0)
-    unexcused_absences = db.Column(db.Float, default=0.0)
-    
-    # Calculated Fields
-    total_effective_absences = db.Column(db.Float, default=0.0)
-    days_absent = db.Column(db.Float, default=0.0)
-    attendance_rate_pct = db.Column(db.Float, nullable=False, default=100.0, index=True)
+    total_days = db.Column(db.Integer, default=180)
 
-    interventions = db.relationship('Intervention', backref='student', cascade='all, delete-orphan')
+# --- App Initialization & Default Seeding ---
 
-    def calculate_metrics(self):
-        """Calculates total lost time and updates attendance percentage."""
-        tardy_days = (self.tardies / TARDY_CONVERSION_FACTOR) if TARDY_CONVERSION_FACTOR > 0 else 0.0
-        half_day_equivalents = self.half_days * 0.5
-        
-        self.total_effective_absences = round(self.full_day_absences + half_day_equivalents + tardy_days, 2)
-        self.days_absent = self.total_effective_absences
-        
-        if self.enrolled_days > 0:
-            rate = ((self.enrolled_days - self.total_effective_absences) / self.enrolled_days) * 100.0
-            self.attendance_rate_pct = max(0.0, min(100.0, round(rate, 2)))
-        else:
-            self.attendance_rate_pct = 100.0
+def init_db():
+    with app.app_context():
+        db.create_all()
+        if not User.query.filter_by(username='admin').first():
+            hashed = generate_password_hash('admin123')
+            admin = User(username='admin', password_hash=hashed)
+            db.session.add(admin)
+            db.session.commit()
 
+init_db()
 
-class Intervention(db.Model):
-    __tablename__ = 'interventions'
-    id = db.Column(db.Integer, primary_key=True)
-    student_db_id = db.Column(db.Integer, db.ForeignKey('students.id'), nullable=False)
-    date_logged = db.Column(db.DateTime, default=datetime.utcnow)
-    intervention_type = db.Column(db.String(100), nullable=False)
-    notes = db.Column(db.Text, nullable=True)
-
-
-# ==========================================
-# 4. AUTHENTICATION DECORATOR
-# ==========================================
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            return jsonify({"error": "Unauthorized"}), 401
-        return f(*args, **kwargs)
-    return decorated_function
-
-
-# ==========================================
-# 5. APPLICATION ROUTES
-# ==========================================
+# --- Application Routes ---
 
 @app.route('/')
 def index():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    return render_template('index.html')
+    records = StudentRecord.query.all()
+    students_data = []
+    
+    for r in records:
+        # Calculate tardy conversions (3 tardies = 1 unexcused absence)
+        tardy_absences = r.tardies // TARDY_CONVERSION_FACTOR
+        adjusted_absences = r.absences + tardy_absences
+        rate = (adjusted_absences / r.total_days * 100) if r.total_days > 0 else 0
+        
+        students_data.append({
+            'student_id': r.student_id,
+            'name': r.name,
+            'absences': r.absences,
+            'tardies': r.tardies,
+            'adjusted_absences': adjusted_absences,
+            'rate': rate
+        })
 
+    return render_template_string(INDEX_HTML, students=students_data)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
+        
         user = User.query.filter_by(username=username).first()
-
-        if user and user.check_password(password):
-            session['user_id'] = user.id
-            session['school_id'] = user.school_id
-            session['username'] = user.username
+        if user and check_password_hash(user.password_hash, password):
             return redirect(url_for('index'))
-        else:
-            flash('Invalid username or password', 'danger')
-
-    return render_template('login.html')
-
+        
+        flash('Invalid username or password.', 'error')
+        
+    return render_template_string(LOGIN_HTML)
 
 @app.route('/logout')
 def logout():
-    session.clear()
     return redirect(url_for('login'))
 
-
-# ------------------------------------------
-# API: GET STUDENTS & METRICS
-# ------------------------------------------
-@app.route('/api/students', methods=['GET'])
-@login_required
-def get_students():
-    school_id = session.get('school_id', 1)
-    
-    # Query Parameters
-    search = request.args.get('search', '').strip()
-    grade = request.args.get('grade', '').strip()
-    sort_by = request.args.get('sort', 'rate_asc')
-    chronic_only = request.args.get('chronic', 'false').lower() == 'true'
-
-    query = Student.query.filter(Student.school_id == school_id)
-
-    # Search Filter
-    if search:
-        query = query.filter(
-            db.or_(
-                Student.student_name.ilike(f"%{search}%"),
-                Student.student_id.ilike(f"%{search}%")
-            )
-        )
-
-    # Grade Filter
-    if grade:
-        query = query.filter(Student.grade == grade)
-
-    # Chronic Absence Filter (< 90.0%)
-    if chronic_only:
-        query = query.filter(Student.attendance_rate_pct < 90.0)
-
-    # Sorting
-    if sort_by == 'rate_asc':
-        query = query.order_by(Student.attendance_rate_pct.asc())
-    elif sort_by == 'rate_desc':
-        query = query.order_by(Student.attendance_rate_pct.desc())
-    elif sort_by == 'absences_desc':
-        query = query.order_by(Student.total_effective_absences.desc())
-    elif sort_by == 'name_asc':
-        query = query.order_by(Student.student_name.asc())
-
-    filtered_students = query.all()
-
-    # Global School Metrics
-    all_school_students = Student.query.filter(Student.school_id == school_id).all()
-    total_enrolled = len(all_school_students)
-    
-    chronic_students_count = sum(1 for s in all_school_students if s.attendance_rate_pct < 90.0)
-    chronic_rate_pct = round((chronic_students_count / total_enrolled * 100.0), 1) if total_enrolled > 0 else 0.0
-
-    return jsonify({
-        "metrics": {
-            "total_students": total_enrolled,
-            "chronic_count": chronic_students_count,
-            "chronic_rate_pct": chronic_rate_pct,
-            "available_grades": sorted(list(set(s.grade for s in all_school_students if s.grade)))
-        },
-        "count": len(filtered_students),
-        "students": [{
-            "id": s.id,
-            "student_id": s.student_id,
-            "name": s.student_name,
-            "grade": s.grade,
-            "enrolled_days": s.enrolled_days,
-            "full_day_absences": s.full_day_absences,
-            "half_days": s.half_days,
-            "tardies": s.tardies,
-            "total_effective_absences": s.total_effective_absences,
-            "unexcused_absences": s.unexcused_absences,
-            "attendance_rate_pct": s.attendance_rate_pct,
-            "is_chronic": s.attendance_rate_pct < 90.0,
-            "interventions_count": len(s.interventions)
-        } for s in filtered_students]
-    })
-
-
-# ------------------------------------------
-# API: CSV UPLOAD
-# ------------------------------------------
-@app.route('/api/upload_csv', methods=['POST'])
-@login_required
+@app.route('/upload_csv', methods=['POST'])
 def upload_csv():
     if 'file' not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-
-    file = request.files['file']
-    if not file.filename.endswith('.csv'):
-        return jsonify({"error": "File must be a CSV"}), 400
-
-    school_id = session.get('school_id', 1)
-    
-    try:
-        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
-        csv_input = csv.DictReader(stream)
-        processed_count = 0
+        flash('No file part provided.', 'error')
+        return redirect(url_for('index'))
         
+    file = request.files['file']
+    if file.filename == '':
+        flash('No file selected.', 'error')
+        return redirect(url_for('index'))
+
+    try:
+        stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
+        csv_input = csv.DictReader(stream)
+
+        # Clear existing entries for fresh sync
+        StudentRecord.query.delete()
+
         for row in csv_input:
-            row_clean = {k.strip().lower().replace(" ", "_"): v.strip() for k, v in row.items() if k}
-            
-            s_id = row_clean.get('student_id') or row_clean.get('id')
-            s_name = row_clean.get('student_name') or row_clean.get('name')
-            
-            if not s_id or not s_name:
-                continue
-
-            student = Student.query.filter_by(school_id=school_id, student_id=s_id).first()
-            if not student:
-                student = Student(school_id=school_id, student_id=s_id)
-
-            student.student_name = s_name
-            student.grade = row_clean.get('grade', student.grade or 'N/A')
-            student.enrolled_days = float(row_clean.get('enrolled_days', student.enrolled_days or 180.0))
-            student.full_day_absences = float(row_clean.get('full_absences', row_clean.get('full_day_absences', 0)))
-            student.half_days = float(row_clean.get('half_days', 0))
-            student.tardies = int(float(row_clean.get('tardies', 0)))
-            student.unexcused_absences = float(row_clean.get('unexcused', row_clean.get('unexcused_absences', 0)))
-
-            student.calculate_metrics()
-
+            student = StudentRecord(
+                student_id=str(row.get('student_id', '')).strip(),
+                name=str(row.get('name', '')).strip(),
+                absences=int(row.get('absences', 0)),
+                tardies=int(row.get('tardies', 0)),
+                total_days=int(row.get('total_days', 180))
+            )
             db.session.add(student)
-            processed_count += 1
-
+            
         db.session.commit()
-        return jsonify({"message": f"Successfully processed {processed_count} student records."})
-
+        flash('Attendance CSV processed and updated successfully!', 'success')
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": f"Failed to parse CSV: {str(e)}"}), 500
+        flash(f'Error processing CSV file: {str(e)}', 'error')
 
-
-# ------------------------------------------
-# API: ADD INTERVENTION
-# ------------------------------------------
-@app.route('/api/interventions', methods=['POST'])
-@login_required
-def add_intervention():
-    data = request.json or {}
-    student_db_id = data.get('student_db_id')
-    intervention_type = data.get('type')
-    notes = data.get('notes', '')
-
-    if not student_db_id or not intervention_type:
-        return jsonify({"error": "Missing required fields"}), 400
-
-    intervention = Intervention(
-        student_db_id=student_db_id,
-        intervention_type=intervention_type,
-        notes=notes
-    )
-    db.session.add(intervention)
-    db.session.commit()
-
-    return jsonify({"message": "Intervention recorded successfully."})
-
-
-# ==========================================
-# 6. INITIALIZATION & STARTUP
-# ==========================================
-def init_db():
-    with app.app_context():
-        db.create_all()
-        if not User.query.filter_by(username='admin').first():
-            default_user = User(username='admin', school_id=1)
-            default_user.set_password('admin123')
-            db.session.add(default_user)
-            db.session.commit()
-
-init_db()
+    return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
