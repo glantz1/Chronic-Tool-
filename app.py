@@ -10,25 +10,19 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'default-dev-secret-key-change-me')
 
 # --- DATABASE CONFIGURATION ---
-# Fetch raw value from env
 raw_db_url = os.environ.get('DATABASE_URL') or os.environ.get('DATABASE_URLpostgresql') or ''
 
-# Debug log: Print raw value before touching it
 print(f"--> RAW ENV DATABASE_URL VALUE: '{raw_db_url}'")
 
-# Clean surrounding whitespace/quotes
 db_url = str(raw_db_url).strip().strip('"').strip("'")
 
-# Clean syntax errors like postgresql="...
 if 'postgresql="' in db_url:
     db_url = db_url.replace('postgresql="', 'postgresql://')
 db_url = db_url.replace('"', '').replace("'", "")
 
-# Convert legacy postgres:// to postgresql://
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-# IF THE URL IS BROKEN OR UNRESOLVED, FALLBACK TO SQLITE (PREVENTS GUNICORN CRASH)
 if not db_url or db_url.startswith("${{") or "://" not in db_url:
     print("--> WARNING: Invalid database URL format. Falling back to local SQLite.")
     db_url = 'sqlite:///attendance.db'
@@ -36,8 +30,13 @@ if not db_url or db_url.startswith("${{") or "://" not in db_url:
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Initialize SQLAlchemy safely
 db = SQLAlchemy(app)
+
+# --- MODELS ---
+class School(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+    users = db.relationship('User', backref='school', lazy=True)
     students = db.relationship('Student', backref='school', lazy=True, cascade="all, delete-orphan")
 
 class User(db.Model):
