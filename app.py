@@ -3,7 +3,6 @@ import csv
 import io
 from datetime import datetime
 from functools import wraps
-from urllib.parse import quote_plus
 
 from flask import (
     Flask, render_template, request, jsonify, 
@@ -13,29 +12,34 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # ==========================================
-# SAFE DATABASE CONFIGURATION (STRICT FALLBACK)
+# 1. INITIALIZE FLASK APP FIRST
 # ==========================================
-# 1. Fetch raw environment variable
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# ==========================================
+# 2. SAFE DATABASE CONFIGURATION
+# ==========================================
 raw_db_url = os.environ.get('DATABASE_URL')
 
-# 2. Check if variable is None, empty string, or whitespace-only
 if not raw_db_url or not str(raw_db_url).strip():
     SQLALCHEMY_DATABASE_URI = 'sqlite:///attendance.db'
 else:
     raw_db_url = str(raw_db_url).strip().strip('"').strip("'")
-    
-    # Standardize legacy Postgres scheme (Heroku / Render compatibility)
     if raw_db_url.startswith('postgres://'):
         SQLALCHEMY_DATABASE_URI = raw_db_url.replace('postgres://', 'postgresql://', 1)
     else:
         SQLALCHEMY_DATABASE_URI = raw_db_url
 
-# 3. Apply explicitly to Flask Config
 app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# 4. Initialize extension
+# ==========================================
+# 3. INITIALIZE EXTENSIONS & CONSTANTS
+# ==========================================
 db = SQLAlchemy(app)
+
+# Tardy conversion rule (e.g., 3 tardies = 1 full day absent equivalent)
 TARDY_CONVERSION_FACTOR = 3 
 
 
