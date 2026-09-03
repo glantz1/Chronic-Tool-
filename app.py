@@ -10,39 +10,34 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'default-dev-secret-key-change-me')
 
 # --- DATABASE CONFIGURATION ---
-# Check standard env var or fallback if Railway merged the key name
-raw_db_url = os.environ.get('DATABASE_URL') or os.environ.get('DATABASE_URLpostgresql', '')
-raw_db_url = raw_db_url.strip().strip('"').strip("'")
+# Fetch raw value from env
+raw_db_url = os.environ.get('DATABASE_URL') or os.environ.get('DATABASE_URLpostgresql') or ''
 
-# Fix corrupted strings like "postgresql="://${{...}}" or extra quotes
-if 'postgresql="' in raw_db_url:
-    raw_db_url = raw_db_url.replace('postgresql="', 'postgresql')
-elif raw_db_url.startswith('="'):
-    raw_db_url = 'postgresql' + raw_db_url[2:]
+# Debug log: Print raw value before touching it
+print(f"--> RAW ENV DATABASE_URL VALUE: '{raw_db_url}'")
 
-# Strip any residual quotes/braces
-raw_db_url = raw_db_url.replace('"', '').replace("'", "")
+# Clean surrounding whitespace/quotes
+db_url = str(raw_db_url).strip().strip('"').strip("'")
 
-# Fall back safely to SQLite if variables aren't resolved
-if not raw_db_url or raw_db_url.startswith("${{") or '://' not in raw_db_url:
-    db_url = 'sqlite:///attendance.db'
-else:
-    db_url = raw_db_url
+# Clean syntax errors like postgresql="...
+if 'postgresql="' in db_url:
+    db_url = db_url.replace('postgresql="', 'postgresql://')
+db_url = db_url.replace('"', '').replace("'", "")
 
-# Fix legacy PostgreSQL driver scheme
+# Convert legacy postgres:// to postgresql://
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+# IF THE URL IS BROKEN OR UNRESOLVED, FALLBACK TO SQLITE (PREVENTS GUNICORN CRASH)
+if not db_url or db_url.startswith("${{") or "://" not in db_url:
+    print("--> WARNING: Invalid database URL format. Falling back to local SQLite.")
+    db_url = 'sqlite:///attendance.db'
 
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# Initialize SQLAlchemy safely
 db = SQLAlchemy(app)
-
-# --- MODELS ---
-class School(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False, unique=True)
-    users = db.relationship('User', backref='school', lazy=True)
     students = db.relationship('Student', backref='school', lazy=True, cascade="all, delete-orphan")
 
 class User(db.Model):
