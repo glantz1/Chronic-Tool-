@@ -9,7 +9,13 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'default-dev-secret-key-change-me')
 
 # --- DATABASE CONFIGURATION ---
-db_url = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
+raw_db_url = os.environ.get('DATABASE_URL', '').strip().strip('"').strip("'")
+
+# Clean malformed variable strings or fall back safely to SQLite
+if not raw_db_url or raw_db_url.startswith("${{"):
+    db_url = 'sqlite:///attendance.db'
+else:
+    db_url = raw_db_url
 
 # Fix legacy Railway PostgreSQL connection scheme
 if db_url.startswith("postgres://"):
@@ -56,7 +62,7 @@ class Student(db.Model):
 class Intervention(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey('student.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # Nullable to support user deletion
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # Nullable to support deletion
     date = db.Column(db.String(20), nullable=False)
     type = db.Column(db.String(100), nullable=False)
     notes = db.Column(db.Text, nullable=True)
@@ -166,7 +172,7 @@ def handle_users():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
     current_user = User.query.get(session['user_id'])
-    if current_user.role != 'admin':
+    if not current_user or current_user.role != 'admin':
         return jsonify({"error": "Admin access required"}), 403
 
     # GET: List all users
@@ -207,7 +213,7 @@ def delete_user(user_id):
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
     current_user = User.query.get(session['user_id'])
-    if current_user.role != 'admin':
+    if not current_user or current_user.role != 'admin':
         return jsonify({"error": "Admin access required"}), 403
 
     if current_user.id == user_id:
@@ -217,7 +223,6 @@ def delete_user(user_id):
     if not user_to_delete:
         return jsonify({"error": "User not found."}), 404
 
-    # Unlink user from interventions to keep student audit history clean without foreign key errors
     interventions = Intervention.query.filter_by(user_id=user_id).all()
     for item in interventions:
         item.user_id = None
@@ -231,7 +236,7 @@ def assign_school():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
     current_user = User.query.get(session['user_id'])
-    if current_user.role != 'admin':
+    if not current_user or current_user.role != 'admin':
         return jsonify({"error": "Admin access required"}), 403
 
     if request.method == 'GET':
@@ -408,7 +413,7 @@ def reset_school_data(school_id):
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
     user = User.query.get(session['user_id'])
-    if user.role != 'admin':
+    if not user or user.role != 'admin':
         return jsonify({"error": "Admin permission required to reset data"}), 403
 
     students = Student.query.filter_by(school_id=school_id).all()
@@ -452,11 +457,11 @@ def handle_interventions():
 
         intervention = Intervention(
             student_id=student_db_id,
-            user_id=user.id,
+            user_id=user.id if user else None,
             date=date,
             type=int_type,
             notes=notes,
-            logged_by_email=user.email
+            logged_by_email=user.email if user else "System"
         )
         db.session.add(intervention)
         db.session.commit()
