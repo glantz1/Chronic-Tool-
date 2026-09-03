@@ -12,24 +12,21 @@ app.secret_key = os.environ.get('SECRET_KEY', 'default-dev-secret-key-change-me'
 # --- DATABASE CONFIGURATION ---
 raw_db_url = os.environ.get('DATABASE_URL') or os.environ.get('DATABASE_URLpostgresql') or ''
 
-print(f"--> RAW ENV DATABASE_URL VALUE: '{raw_db_url}'")
-
 db_url = str(raw_db_url).strip().strip('"').strip("'")
 
-# Fix cases where 'DATABASE_URL=' was accidentally pasted into the variable value
+# Clean duplicate keys or stray characters
 if 'DATABASE_URL=' in db_url:
     db_url = db_url.replace('DATABASE_URL=', '')
-
-# Fix syntax errors like postgresql="...
 if 'postgresql="' in db_url:
     db_url = db_url.replace('postgresql="', 'postgresql://')
+
 db_url = db_url.replace('"', '').replace("'", "")
 
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
 if not db_url or db_url.startswith("${{") or "://" not in db_url:
-    print("--> WARNING: Invalid database URL format. Falling back to local SQLite.")
+    print("--> WARNING: Invalid database URL. Falling back to local SQLite.")
     db_url = 'sqlite:///attendance.db'
 
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
@@ -83,17 +80,14 @@ class Intervention(db.Model):
 def init_db():
     db.create_all()
     try:
-        with db.engine.connect() as conn:
-            conn.execute(db.text("ALTER TABLE student ADD COLUMN unexcused_absences FLOAT DEFAULT 0.0"))
-            conn.commit()
-    except Exception:
-        pass
-
-    if not User.query.filter_by(role='admin').first():
-        default_admin = User(email='admin@school.edu', role='admin')
-        default_admin.set_password('AdminPass123!')
-        db.session.add(default_admin)
-        db.session.commit()
+        if not User.query.filter_by(role='admin').first():
+            default_admin = User(email='admin@school.edu', role='admin')
+            default_admin.set_password('AdminPass123!')
+            db.session.add(default_admin)
+            db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"--> Database init warning: {e}")
 
 with app.app_context():
     init_db()
@@ -154,10 +148,14 @@ def get_schools():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
     user = User.query.get(session['user_id'])
+    if not user:
+        return jsonify({"error": "Session expired"}), 401
+
     if user.role == 'admin':
-        schools = School.query.all()
+        schools = School.query.order_by(School.name.asc()).all()
     else:
         schools = School.query.filter_by(id=user.school_id).all() if user.school_id else []
+    
     return jsonify({"schools": [{"id": s.id, "name": s.name} for s in schools]})
 
 @app.route('/admin/schools', methods=['POST'])
@@ -165,18 +163,31 @@ def add_school():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
     user = User.query.get(session['user_id'])
-    if user.role != 'admin':
+    if not user or user.role != 'admin':
         return jsonify({"error": "Admin access required"}), 403
+
     data = request.get_json(silent=True) or request.form
-    name = data.get('name', '').strip()
+    name = (data.get('name') or data.get('school_name') or '').strip()
+
     if not name:
         return jsonify({"error": "School name is required"}), 400
-    if School.query.filter_by(name=name).first():
-        return jsonify({"error": "School already exists"}), 400
-    school = School(name=name)
-    db.session.add(school)
-    db.session.commit()
-    return jsonify({"message": "School added successfully", "school": {"id": school.id, "name": school.name}})
+
+    existing = School.query.filter(School.name.ilike(name)).first()
+    if existing:
+        return jsonify({"error": "A school with this name already exists"}), 400
+
+    try:
+        new_school = School(name=name)
+        db.session.add(new_school)
+        db.session.commit()
+        return jsonify({
+            "message": "School added successfully",
+            "school": {"id": new_school.id, "name": new_school.name}
+        })
+    except Exception as e:
+        db.session.rollback()
+        print(f"--> Error adding school: {str(e)}")
+        return jsonify({"error": "Failed to save school to database"}), 500
 
 @app.route('/admin/users', methods=['GET', 'POST'])
 def handle_users():
@@ -211,11 +222,15 @@ def handle_users():
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "User with this email already exists"}), 400
 
-    new_user = User(email=email, role=role, school_id=school_id)
-    new_user.set_password(password)
-    db.session.add(new_user)
-    db.session.commit()
-    return jsonify({"message": "User created successfully"})
+    try:
+        new_user = User(email=email, role=role, school_id=school_id)
+        new_user.set_password(password)
+        db.session.add(new_user)
+        db.session.commit()
+        return jsonify({"message": "User created successfully"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to create user: {str(e)}"}), 500
 
 @app.route('/admin/users/<int:user_id>', methods=['DELETE'])
 def delete_user(user_id):
@@ -248,9 +263,6 @@ def assign_school():
     if not current_user or current_user.role != 'admin':
         return jsonify({"error": "Admin access required"}), 403
 
-    if request.method == 'GET':
-        return jsonify({"message": "Send a POST request with user_id and school_id."})
-
     data = request.get_json(silent=True) or request.form
     target_user_id = data.get('user_id')
     school_id = data.get('school_id')
@@ -264,11 +276,11 @@ def assign_school():
 
     try:
         user_to_update.school_id = int(school_id) if school_id else None
-    except (ValueError, TypeError):
-        user_to_update.school_id = None
-
-    db.session.commit()
-    return jsonify({"message": f"Successfully assigned school to {user_to_update.email}"})
+        db.session.commit()
+        return jsonify({"message": f"Successfully assigned school to {user_to_update.email}"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/students', methods=['GET'])
 def get_students():
@@ -411,8 +423,12 @@ def upload_file():
         student.is_chronic = is_chronic
         processed += 1
 
-    db.session.commit()
-    return jsonify({"message": f"Successfully processed {processed} student records!"})
+    try:
+        db.session.commit()
+        return jsonify({"message": f"Successfully processed {processed} student records!"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to save CSV records: {str(e)}"}), 500
 
 @app.route('/schools/<int:school_id>/reset-data', methods=['DELETE'])
 def reset_school_data(school_id):
