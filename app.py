@@ -9,48 +9,63 @@ from flask import (
     redirect, url_for, flash, session
 )
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # ==========================================
-# 1. INITIALIZE FLASK APP FIRST
+# 1. INITIALIZE FLASK APP
 # ==========================================
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# ==========================================
-# 2. SAFE DATABASE CONFIGURATION (SANITY CHECKED)
-# ==========================================
-raw_db_url = os.environ.get('DATABASE_URL')
 
-# Check for None, empty strings, or string containing only spaces/quotes
-if not raw_db_url or not str(raw_db_url).strip():
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///attendance.db'
-else:
-    # Clean up accidental surrounding quotes or trailing whitespace
-    clean_url = str(raw_db_url).strip().strip('"').strip("'")
-    
+# ==========================================
+# 2. BULLETPROOF DATABASE CONFIGURATION
+# ==========================================
+def resolve_database_uri() -> str:
+    """
+    Validates and cleans DATABASE_URL environment variable.
+    Falls back safely to SQLite if missing, empty, or unparseable.
+    """
+    default_uri = 'sqlite:///attendance.db'
+    raw_url = os.environ.get('DATABASE_URL')
+
+    if not raw_url:
+        return default_uri
+
+    # Clean whitespace and surrounding quotes
+    clean_url = str(raw_url).strip().strip('"').strip("'")
     if not clean_url:
-        SQLALCHEMY_DATABASE_URI = 'sqlite:///attendance.db'
-    elif clean_url.startswith('postgres://'):
-        # Fix legacy Heroku/Render Postgres scheme for SQLAlchemy 1.4+
-        SQLALCHEMY_DATABASE_URI = clean_url.replace('postgres://', 'postgresql://', 1)
-    else:
-        SQLALCHEMY_DATABASE_URI = clean_url
+        return default_uri
 
-app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
+    # Fix legacy Postgres scheme (Heroku/Render/older setups)
+    if clean_url.startswith('postgres://'):
+        clean_url = clean_url.replace('postgres://', 'postgresql://', 1)
+
+    # Test if SQLAlchemy can parse the URI; if invalid, fall back safely
+    try:
+        make_url(clean_url)
+        return clean_url
+    except ArgumentError:
+        app.logger.warning(
+            "Invalid DATABASE_URL detected. Falling back to default SQLite database."
+        )
+        return default_uri
+
+
+app.config['SQLALCHEMY_DATABASE_URI'] = resolve_database_uri()
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# ==========================================
-# 3. INITIALIZE EXTENSIONS & CONSTANTS
-# ==========================================
+# Initialize SQLAlchemy extension
 db = SQLAlchemy(app)
 
-# Tardy conversion rule (e.g., 3 tardies = 1 full day absent equivalent)
-TARDY_CONVERSION_FACTOR = 3 
+# Attendance conversion constants
+TARDY_CONVERSION_FACTOR = 3  # e.g., 3 tardies = 1 day absent equivalent
 
 
 # ==========================================
-# DATABASE MODELS
+# 3. DATABASE MODELS
 # ==========================================
 class User(db.Model):
     __tablename__ = 'users'
@@ -89,7 +104,7 @@ class Student(db.Model):
     interventions = db.relationship('Intervention', backref='student', cascade='all, delete-orphan')
 
     def calculate_metrics(self):
-        """Calculates total lost time (full + half + tardies) and updates percentage."""
+        """Calculates total lost time and updates attendance percentage."""
         tardy_days = (self.tardies / TARDY_CONVERSION_FACTOR) if TARDY_CONVERSION_FACTOR > 0 else 0.0
         half_day_equivalents = self.half_days * 0.5
         
@@ -113,7 +128,7 @@ class Intervention(db.Model):
 
 
 # ==========================================
-# AUTHENTICATION DECORATOR
+# 4. AUTHENTICATION DECORATOR
 # ==========================================
 def login_required(f):
     @wraps(f)
@@ -125,7 +140,7 @@ def login_required(f):
 
 
 # ==========================================
-# ROUTES
+# 5. APPLICATION ROUTES
 # ==========================================
 
 @app.route('/')
@@ -175,7 +190,7 @@ def get_students():
 
     query = Student.query.filter(Student.school_id == school_id)
 
-    # 1. Search Filter
+    # Search Filter
     if search:
         query = query.filter(
             db.or_(
@@ -184,15 +199,15 @@ def get_students():
             )
         )
 
-    # 2. Grade Filter
+    # Grade Filter
     if grade:
         query = query.filter(Student.grade == grade)
 
-    # 3. Chronic Absence Filter (STRICTLY BELOW 90.0%)
+    # Chronic Absence Filter (< 90.0%)
     if chronic_only:
         query = query.filter(Student.attendance_rate_pct < 90.0)
 
-    # 4. Sorting
+    # Sorting
     if sort_by == 'rate_asc':
         query = query.order_by(Student.attendance_rate_pct.asc())
     elif sort_by == 'rate_desc':
@@ -204,7 +219,7 @@ def get_students():
 
     filtered_students = query.all()
 
-    # 5. Global School Metrics
+    # Global School Metrics
     all_school_students = Student.query.filter(Student.school_id == school_id).all()
     total_enrolled = len(all_school_students)
     
@@ -317,7 +332,7 @@ def add_intervention():
 
 
 # ==========================================
-# INITIALIZATION & STARTUP
+# 6. INITIALIZATION & STARTUP
 # ==========================================
 def init_db():
     with app.app_context():
