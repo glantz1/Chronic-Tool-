@@ -18,18 +18,24 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # ==========================================
-# 2. SAFE DATABASE CONFIGURATION
+# 2. SAFE DATABASE CONFIGURATION (SANITY CHECKED)
 # ==========================================
 raw_db_url = os.environ.get('DATABASE_URL')
 
+# Check for None, empty strings, or string containing only spaces/quotes
 if not raw_db_url or not str(raw_db_url).strip():
     SQLALCHEMY_DATABASE_URI = 'sqlite:///attendance.db'
 else:
-    raw_db_url = str(raw_db_url).strip().strip('"').strip("'")
-    if raw_db_url.startswith('postgres://'):
-        SQLALCHEMY_DATABASE_URI = raw_db_url.replace('postgres://', 'postgresql://', 1)
+    # Clean up accidental surrounding quotes or trailing whitespace
+    clean_url = str(raw_db_url).strip().strip('"').strip("'")
+    
+    if not clean_url:
+        SQLALCHEMY_DATABASE_URI = 'sqlite:///attendance.db'
+    elif clean_url.startswith('postgres://'):
+        # Fix legacy Heroku/Render Postgres scheme for SQLAlchemy 1.4+
+        SQLALCHEMY_DATABASE_URI = clean_url.replace('postgres://', 'postgresql://', 1)
     else:
-        SQLALCHEMY_DATABASE_URI = raw_db_url
+        SQLALCHEMY_DATABASE_URI = clean_url
 
 app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
