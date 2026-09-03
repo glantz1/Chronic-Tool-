@@ -56,7 +56,7 @@ class Student(db.Model):
 class Intervention(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey('student.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # Nullable to support user deletion
     date = db.Column(db.String(20), nullable=False)
     type = db.Column(db.String(100), nullable=False)
     notes = db.Column(db.Text, nullable=True)
@@ -80,7 +80,6 @@ def init_db():
 
 with app.app_context():
     init_db()
-    # Console output to confirm PostgreSQL host connection in deployment logs
     masked_db = app.config['SQLALCHEMY_DATABASE_URI'].split('@')[-1]
     print(f"==================================================")
     print(f"--> ACTIVE DATABASE BACKEND: {masked_db}")
@@ -162,27 +161,103 @@ def add_school():
     db.session.commit()
     return jsonify({"message": "School added successfully", "school": {"id": school.id, "name": school.name}})
 
-@app.route('/admin/users', methods=['POST'])
-def add_user():
+@app.route('/admin/users', methods=['GET', 'POST'])
+def handle_users():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
-    user = User.query.get(session['user_id'])
-    if user.role != 'admin':
+    current_user = User.query.get(session['user_id'])
+    if current_user.role != 'admin':
         return jsonify({"error": "Admin access required"}), 403
+
+    # GET: List all users
+    if request.method == 'GET':
+        users = User.query.all()
+        return jsonify({
+            "users": [
+                {
+                    "id": u.id,
+                    "email": u.email,
+                    "role": u.role,
+                    "school_id": u.school_id,
+                    "school_name": u.school.name if u.school else "Unassigned"
+                } for u in users
+            ]
+        })
+
+    # POST: Create a new user
     data = request.get_json(silent=True) or request.form
     email = data.get('email', '').strip().lower()
     password = data.get('password', '')
     role = data.get('role', 'staff')
     school_id = data.get('school_id') or None
+
     if not email or not password:
         return jsonify({"error": "Email and password are required"}), 400
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "User with this email already exists"}), 400
+
     new_user = User(email=email, role=role, school_id=school_id)
     new_user.set_password(password)
     db.session.add(new_user)
     db.session.commit()
     return jsonify({"message": "User created successfully"})
+
+@app.route('/admin/users/<int:user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    current_user = User.query.get(session['user_id'])
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
+
+    if current_user.id == user_id:
+        return jsonify({"error": "You cannot delete your own account while logged in."}), 400
+
+    user_to_delete = User.query.get(user_id)
+    if not user_to_delete:
+        return jsonify({"error": "User not found."}), 404
+
+    # Unlink user from interventions to keep student audit history clean without foreign key errors
+    interventions = Intervention.query.filter_by(user_id=user_id).all()
+    for item in interventions:
+        item.user_id = None
+
+    db.session.delete(user_to_delete)
+    db.session.commit()
+    return jsonify({"message": f"Successfully deleted user {user_to_delete.email}."})
+
+@app.route('/admin/assign-school', methods=['GET', 'POST'])
+def assign_school():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    current_user = User.query.get(session['user_id'])
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
+
+    if request.method == 'GET':
+        return jsonify({"message": "Send a POST request with user_id and school_id."})
+
+    data = request.get_json(silent=True) or request.form
+    target_user_id = data.get('user_id')
+    school_id = data.get('school_id')
+
+    if not target_user_id:
+        return jsonify({"error": "user_id is required"}), 400
+
+    user_to_update = User.query.get(target_user_id)
+    if not user_to_update:
+        return jsonify({"error": "User not found"}), 404
+
+    try:
+        user_to_update.school_id = int(school_id) if school_id else None
+    except (ValueError, TypeError):
+        user_to_update.school_id = None
+
+    db.session.commit()
+
+    if request.is_json:
+        return jsonify({"message": f"Successfully assigned school to {user_to_update.email}"})
+    return render_template('index.html')
 
 @app.route('/students', methods=['GET'])
 def get_students():
@@ -411,39 +486,6 @@ def export_interventions():
         as_attachment=True,
         download_name=f'interventions_export_school_{school_id}.csv'
     )
-
-@app.route('/admin/assign-school', methods=['GET', 'POST'])
-def assign_school():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    current_user = User.query.get(session['user_id'])
-    if current_user.role != 'admin':
-        return jsonify({"error": "Admin access required"}), 403
-
-    if request.method == 'GET':
-        return jsonify({"message": "Send a POST request with user_id and school_id."})
-
-    data = request.get_json(silent=True) or request.form
-    target_user_id = data.get('user_id')
-    school_id = data.get('school_id')
-
-    if not target_user_id:
-        return jsonify({"error": "user_id is required"}), 400
-
-    user_to_update = User.query.get(target_user_id)
-    if not user_to_update:
-        return jsonify({"error": "User not found"}), 404
-
-    try:
-        user_to_update.school_id = int(school_id) if school_id else None
-    except (ValueError, TypeError):
-        user_to_update.school_id = None
-
-    db.session.commit()
-
-    if request.is_json:
-        return jsonify({"message": f"Successfully assigned school to {user_to_update.email}"})
-    return render_template('index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
