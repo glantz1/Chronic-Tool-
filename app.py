@@ -1,4 +1,5 @@
 import os
+import re
 import io
 import csv
 from flask import Flask, request, jsonify, render_template, session, send_file
@@ -9,15 +10,26 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'default-dev-secret-key-change-me')
 
 # --- DATABASE CONFIGURATION ---
-raw_db_url = os.environ.get('DATABASE_URL', '').strip().strip('"').strip("'")
+# Check standard env var or fallback if Railway merged the key name
+raw_db_url = os.environ.get('DATABASE_URL') or os.environ.get('DATABASE_URLpostgresql', '')
+raw_db_url = raw_db_url.strip().strip('"').strip("'")
 
-# Clean malformed variable strings or fall back safely to SQLite
-if not raw_db_url or raw_db_url.startswith("${{"):
+# Fix corrupted strings like "postgresql="://${{...}}" or extra quotes
+if 'postgresql="' in raw_db_url:
+    raw_db_url = raw_db_url.replace('postgresql="', 'postgresql')
+elif raw_db_url.startswith('="'):
+    raw_db_url = 'postgresql' + raw_db_url[2:]
+
+# Strip any residual quotes/braces
+raw_db_url = raw_db_url.replace('"', '').replace("'", "")
+
+# Fall back safely to SQLite if variables aren't resolved
+if not raw_db_url or raw_db_url.startswith("${{") or '://' not in raw_db_url:
     db_url = 'sqlite:///attendance.db'
 else:
     db_url = raw_db_url
 
-# Fix legacy Railway PostgreSQL connection scheme
+# Fix legacy PostgreSQL driver scheme
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
@@ -37,7 +49,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='staff')  # 'admin' or 'staff'
+    role = db.Column(db.String(20), nullable=False, default='staff')
     school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)
 
     def set_password(self, password):
@@ -62,13 +74,13 @@ class Student(db.Model):
 class Intervention(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey('student.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # Nullable to support deletion
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     date = db.Column(db.String(20), nullable=False)
     type = db.Column(db.String(100), nullable=False)
     notes = db.Column(db.Text, nullable=True)
     logged_by_email = db.Column(db.String(120), nullable=True)
 
-# --- DATABASE INITIALIZATION & VERIFICATION ---
+# --- DATABASE INITIALIZATION ---
 def init_db():
     db.create_all()
     try:
@@ -76,7 +88,7 @@ def init_db():
             conn.execute(db.text("ALTER TABLE student ADD COLUMN unexcused_absences FLOAT DEFAULT 0.0"))
             conn.commit()
     except Exception:
-        pass  # Column already exists
+        pass
 
     if not User.query.filter_by(role='admin').first():
         default_admin = User(email='admin@school.edu', role='admin')
@@ -175,7 +187,6 @@ def handle_users():
     if not current_user or current_user.role != 'admin':
         return jsonify({"error": "Admin access required"}), 403
 
-    # GET: List all users
     if request.method == 'GET':
         users = User.query.all()
         return jsonify({
@@ -190,7 +201,6 @@ def handle_users():
             ]
         })
 
-    # POST: Create a new user
     data = request.get_json(silent=True) or request.form
     email = data.get('email', '').strip().lower()
     password = data.get('password', '')
@@ -259,10 +269,7 @@ def assign_school():
         user_to_update.school_id = None
 
     db.session.commit()
-
-    if request.is_json:
-        return jsonify({"message": f"Successfully assigned school to {user_to_update.email}"})
-    return render_template('index.html')
+    return jsonify({"message": f"Successfully assigned school to {user_to_update.email}"})
 
 @app.route('/students', methods=['GET'])
 def get_students():
