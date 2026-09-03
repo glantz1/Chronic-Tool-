@@ -16,6 +16,11 @@ print(f"--> RAW ENV DATABASE_URL VALUE: '{raw_db_url}'")
 
 db_url = str(raw_db_url).strip().strip('"').strip("'")
 
+# Fix cases where 'DATABASE_URL=' was accidentally pasted into the variable value
+if 'DATABASE_URL=' in db_url:
+    db_url = db_url.replace('DATABASE_URL=', '')
+
+# Fix syntax errors like postgresql="...
 if 'postgresql="' in db_url:
     db_url = db_url.replace('postgresql="', 'postgresql://')
 db_url = db_url.replace('"', '').replace("'", "")
