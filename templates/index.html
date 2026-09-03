@@ -1,587 +1,369 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Attendance Tracking & Intervention Portal</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attendance Tracking Dashboard</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 20px; background-color: #f8f9fa; color: #333; }
+    .container { max-width: 1100px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    h1, h2, h3 { color: #2c3e50; }
+    .hidden { display: none !important; }
+    .card { background: #f1f5f9; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-weight: 600; }
+    input, select, textarea, button { padding: 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+    input[type="text"], input[type="email"], input[type="password"], select, textarea { width: 100%; box-sizing: border-box; }
+    button { background-color: #0066cc; color: #fff; border: none; cursor: pointer; font-weight: 600; }
+    button:hover { background-color: #0052a3; }
+    button.btn-danger { background-color: #dc3545; }
+    button.btn-danger:hover { background-color: #bd2130; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    th { background-color: #e9ecef; }
+    .badge-chronic { background: #f8d7da; color: #721c24; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+    .flex-row { display: flex; gap: 15px; align-items: center; }
+  </style>
 </head>
-<body class="bg-slate-100 min-h-screen text-slate-800 font-sans">
+<body>
+<div class="container">
+  <h1>Attendance & Intervention Tracker</h1>
 
-    <!-- NAVIGATION BAR -->
-    <nav class="bg-slate-900 text-white shadow-lg sticky top-0 z-40">
-        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-            <div class="flex items-center space-x-3">
-                <i class="fa-solid fa-graduation-cap text-indigo-400 text-2xl"></i>
-                <h1 class="text-xl font-bold tracking-tight">Attendance Intervention Portal</h1>
-            </div>
-            <div id="userInfo" class="hidden items-center space-x-4">
-                <div class="text-right">
-                    <div id="userEmail" class="text-sm font-semibold text-slate-200"></div>
-                    <div id="userRoleBadge" class="text-xs text-indigo-400 uppercase font-mono"></div>
-                </div>
-                <button onclick="logout()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-1.5 rounded-lg text-sm transition border border-slate-700">
-                    <i class="fa-solid fa-right-from-bracket mr-1"></i> Logout
-                </button>
-            </div>
+  <!-- LOGIN SECTION -->
+  <div id="login-section" class="card">
+    <h2>Login</h2>
+    <form id="login-form">
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" id="login-email" required>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="login-password" required>
+      </div>
+      <button type="submit">Log In</button>
+    </form>
+  </div>
+
+  <!-- MAIN APP CONTAINER -->
+  <div id="app-section" class="hidden">
+    <div class="flex-row" style="justify-content: space-between;">
+      <div>Logged in as: <strong id="user-display"></strong> (<span id="role-display"></span>)</div>
+      <button onclick="logout()">Log Out</button>
+    </div>
+    <hr style="margin: 20px 0;">
+
+    <!-- ADMIN PANEL -->
+    <div id="admin-panel" class="card hidden">
+      <h2>Administrator Controls</h2>
+      
+      <!-- Create School -->
+      <div class="form-group">
+        <h3>Add New School</h3>
+        <div class="flex-row">
+          <input type="text" id="new-school-name" placeholder="School Name">
+          <button onclick="addSchool()">Add School</button>
         </div>
-    </nav>
+      </div>
 
-    <div class="max-w-7xl mx-auto px-6 py-8">
-
-        <!-- LOGIN FORM -->
-        <div id="loginSection" class="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-xl border border-slate-200 mt-12">
-            <div class="text-center mb-6">
-                <i class="fa-solid fa-user-lock text-4xl text-indigo-600 mb-2"></i>
-                <h2 class="text-2xl font-bold text-slate-900">Sign In</h2>
-            </div>
-            <div id="loginError" class="hidden bg-red-50 text-red-700 p-3 rounded-lg mb-4 text-sm border border-red-200"></div>
-            <form onsubmit="handleLogin(event)" class="space-y-4">
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700 mb-1">Email</label>
-                    <input type="email" id="loginEmail" required class="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                </div>
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700 mb-1">Password</label>
-                    <input type="password" id="loginPassword" required class="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                </div>
-                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg transition shadow-md">
-                    Sign In
-                </button>
-            </form>
+      <!-- Create User -->
+      <div class="form-group">
+        <h3>Create New User</h3>
+        <div class="flex-row">
+          <input type="email" id="new-user-email" placeholder="Email">
+          <input type="password" id="new-user-password" placeholder="Password">
+          <select id="new-user-role">
+            <option value="staff">Staff</option>
+            <option value="admin">Admin</option>
+          </select>
+          <select id="new-user-school"></select>
+          <button onclick="addUser()">Create User</button>
         </div>
+      </div>
 
-        <!-- MAIN DASHBOARD CONTAINER -->
-        <div id="dashboardSection" class="hidden space-y-6">
-
-            <!-- ADMIN CONTROL CENTER -->
-            <div id="adminPanel" class="hidden bg-white p-6 rounded-2xl shadow-sm border border-indigo-100 space-y-6">
-                <div class="border-b pb-3 flex items-center space-x-2">
-                    <i class="fa-solid fa-user-shield text-indigo-600 text-xl"></i>
-                    <h2 class="text-lg font-bold text-slate-900">Admin Controls</h2>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Add School -->
-                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <h3 class="font-bold text-slate-800 mb-3 flex items-center text-sm">
-                            <i class="fa-solid fa-school mr-2 text-indigo-500"></i> Add School
-                        </h3>
-                        <form onsubmit="handleAddSchool(event)" class="flex gap-2">
-                            <input type="text" id="newSchoolName" placeholder="School Name" required class="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
-                            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">Add</button>
-                        </form>
-                    </div>
-
-                    <!-- Add Staff -->
-                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <h3 class="font-bold text-slate-800 mb-3 flex items-center text-sm">
-                            <i class="fa-solid fa-user-plus mr-2 text-indigo-500"></i> Add Staff Account
-                        </h3>
-                        <form onsubmit="handleAddUser(event)" class="space-y-3">
-                            <div class="grid grid-cols-2 gap-2">
-                                <input type="email" id="newUserEmail" placeholder="Email" required class="px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
-                                <input type="password" id="newUserPassword" placeholder="Password" required class="px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
-                            </div>
-                            <div class="grid grid-cols-2 gap-2">
-                                <select id="newUserRole" class="px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
-                                    <option value="staff">Staff</option>
-                                    <option value="admin">Admin</option>
-                                </select>
-                                <select id="newUserSchool" class="px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
-                                    <option value="">Assign School...</option>
-                                </select>
-                            </div>
-                            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-sm font-semibold transition">Create Staff Account</button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-
-            <!-- METRIC CARDS BANNER -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
-                    <div>
-                        <div class="text-xs font-bold uppercase text-slate-400">Total Enrolled Membership</div>
-                        <div id="metricTotalMembership" class="text-3xl font-black text-slate-800 mt-1">0</div>
-                    </div>
-                    <div class="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 text-xl">
-                        <i class="fa-solid fa-users"></i>
-                    </div>
-                </div>
-
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
-                    <div>
-                        <div class="text-xs font-bold uppercase text-slate-400">Chronic Absentees</div>
-                        <div id="metricChronicCount" class="text-3xl font-black text-red-600 mt-1">0</div>
-                    </div>
-                    <div class="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center text-red-600 text-xl">
-                        <i class="fa-solid fa-triangle-exclamation"></i>
-                    </div>
-                </div>
-
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
-                    <div>
-                        <div class="text-xs font-bold uppercase text-slate-400">Chronic Rate %</div>
-                        <div id="metricChronicPct" class="text-3xl font-black text-amber-500 mt-1">0.0%</div>
-                    </div>
-                    <div class="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-500 text-xl">
-                        <i class="fa-solid fa-chart-pie"></i>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TOP CONTROLS, CSV UPLOAD & DATA RESET -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Active School</label>
-                    <select id="schoolSelect" onchange="loadStudents()" class="w-full px-3.5 py-2 border rounded-xl text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500">
-                        <option value="">Select School...</option>
-                    </select>
-                </div>
-
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 md:col-span-2">
-                    <div class="flex justify-between items-center mb-2">
-                        <label class="block text-xs font-bold uppercase text-slate-400">Import CSV or Excel Data</label>
-                        <button type="button" onclick="confirmResetSchoolData()" class="text-xs text-red-600 hover:text-red-700 font-bold flex items-center">
-                            <i class="fa-solid fa-trash-can mr-1"></i> Clear School Data
-                        </button>
-                    </div>
-                    <form onsubmit="handleFileUpload(event)" class="flex gap-3">
-                        <input type="file" id="csvFile" accept=".csv" required class="flex-1 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
-                        <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white px-5 py-2 rounded-xl text-sm font-semibold transition flex items-center shadow-sm">
-                            <i class="fa-solid fa-cloud-arrow-up mr-2"></i> Upload File
-                        </button>
-                    </form>
-                </div>
-            </div>
-
-            <!-- FILTERS & EXPORT -->
-            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
-                <div class="flex flex-wrap gap-3 items-center flex-1">
-                    <div class="relative flex-1 min-w-[220px]">
-                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
-                        <input type="text" id="searchInput" oninput="loadStudents()" placeholder="Search student name or ID..." class="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500">
-                    </div>
-
-                    <select id="gradeFilter" onchange="loadStudents()" class="px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500">
-                        <option value="">All Grades</option>
-                    </select>
-
-                    <select id="sortFilter" onchange="loadStudents()" class="px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500">
-                        <option value="absences_desc">Most Absences</option>
-                        <option value="unexcused_desc">Most Unexcused</option>
-                        <option value="absences_asc">Least Absences</option>
-                        <option value="rate_asc">Lowest Attendance %</option>
-                        <option value="rate_desc">Highest Attendance %</option>
-                        <option value="name_asc">Name (A-Z)</option>
-                        <option value="name_desc">Name (Z-A)</option>
-                    </select>
-
-                    <label class="inline-flex items-center cursor-pointer select-none text-sm text-slate-700 font-semibold ml-2">
-                        <input type="checkbox" id="chronicToggle" onchange="loadStudents()" class="sr-only peer">
-                        <div class="relative w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
-                        <span class="ms-3 text-red-600 font-bold">Chronically Absent Only</span>
-                    </label>
-                </div>
-
-                <button onclick="exportInterventions()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center shadow-sm">
-                    <i class="fa-solid fa-file-excel mr-2"></i> Export Interventions Log
-                </button>
-            </div>
-
-            <!-- STUDENTS ROSTER TABLE -->
-            <div class="bg-white rounded-2xl shadow-sm overflow-hidden border border-slate-200">
-                <div class="px-6 py-4 bg-slate-50 border-b flex justify-between items-center">
-                    <h3 class="font-bold text-slate-800">Student Roster</h3>
-                    <span id="studentStats" class="text-xs font-bold text-slate-500 uppercase tracking-wider">0 Students Found</span>
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr class="bg-slate-100 border-b text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                <th class="p-4">Student ID</th>
-                                <th class="p-4">Name</th>
-                                <th class="p-4">Grade</th>
-                                <th class="p-4 text-center">Total Absences</th>
-                                <th class="p-4 text-center">Unexcused</th>
-                                <th class="p-4 text-center">Total Days</th>
-                                <th class="p-4 text-center">Attendance %</th>
-                                <th class="p-4">Status</th>
-                                <th class="p-4 text-center">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="studentTableBody" class="divide-y divide-slate-200 text-sm">
-                            <tr>
-                                <td colspan="9" class="text-center p-8 text-slate-400">Select a school to view student roster.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
+      <!-- Assign School to User -->
+      <div class="form-group">
+        <h3>Assign User to School</h3>
+        <div class="flex-row">
+          <select id="assign-user-select"></select>
+          <select id="assign-school-select"></select>
+          <button onclick="assignSchool()">Assign</button>
         </div>
+      </div>
+
+      <!-- USER MANAGEMENT TABLE -->
+      <div style="margin-top: 25px;">
+        <h3>Existing User Accounts</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Assigned School</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="user-table-body"></tbody>
+        </table>
+      </div>
     </div>
 
-    <!-- LOG INTERVENTION MODAL -->
-    <div id="interventionModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
-        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-5">
-            <div class="flex justify-between items-center border-b pb-3">
-                <h3 class="text-lg font-bold text-slate-900" id="modalStudentTitle">Log Intervention</h3>
-                <button onclick="closeInterventionModal()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
-            </div>
+    <!-- MAIN ATTENDANCE DASHBOARD -->
+    <div>
+      <h2>Dashboard</h2>
+      <div class="form-group">
+        <label>Select School Workspace:</label>
+        <select id="active-school-select" onchange="loadStudents()"></select>
+      </div>
 
-            <input type="hidden" id="modalStudentDbId">
+      <!-- CSV Upload -->
+      <div class="card">
+        <h3>Upload SIS Attendance Export (CSV)</h3>
+        <form id="upload-form" class="flex-row">
+          <input type="file" id="csv-file" accept=".csv" required>
+          <button type="submit">Upload & Process CSV</button>
+        </form>
+      </div>
 
-            <form onsubmit="handleSaveIntervention(event)" class="space-y-4">
-                <div>
-                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Date</label>
-                    <input type="date" id="intDate" required class="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500">
-                </div>
-
-                <div>
-                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Intervention Type</label>
-                    <select id="intType" required class="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500">
-                        <option value="Student Conference">Student Conference</option>
-                        <option value="Parent Phone Call">Parent Phone Call</option>
-                        <option value="Parent Conference">Parent Conference</option>
-                        <option value="Student Attendance Contract">Student Attendance Contract</option>
-                        <option value="Home Visit">Home Visit</option>
-                        <option value="Counselor Referral">Counselor Referral</option>
-                        <option value="Official Warning Letter">Official Warning Letter</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Notes / Action Details</label>
-                    <textarea id="intNotes" rows="3" class="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500" placeholder="Enter details about this action..."></textarea>
-                </div>
-
-                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl transition shadow">
-                    Save Action Log
-                </button>
-            </form>
-
-            <div class="border-t pt-4">
-                <h4 class="text-xs font-bold uppercase text-slate-500 mb-2">Previous Interventions</h4>
-                <div id="previousInterventionsList" class="space-y-2 max-h-40 overflow-y-auto text-xs text-slate-600">
-                    <div class="text-slate-400 italic">No previous actions logged.</div>
-                </div>
-            </div>
+      <!-- Student Table & Filters -->
+      <div>
+        <h3>Student Attendance Roster</h3>
+        <div class="flex-row" style="margin-bottom: 10px;">
+          <input type="text" id="search-input" placeholder="Search by name or ID..." onkeyup="loadStudents()">
+          <select id="sort-select" onchange="loadStudents()">
+            <option value="absences_desc">Most Absences</option>
+            <option value="absences_asc">Least Absences</option>
+            <option value="rate_asc">Lowest Attendance Rate</option>
+            <option value="name_asc">Name (A-Z)</option>
+          </select>
+          <label><input type="checkbox" id="chronic-filter" onchange="loadStudents()"> Chronic Only</label>
         </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Student ID</th>
+              <th>Name</th>
+              <th>Grade</th>
+              <th>Days Absent</th>
+              <th>Unexcused</th>
+              <th>Attendance Rate</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="student-table-body"></tbody>
+        </table>
+      </div>
     </div>
+  </div>
+</div>
 
-    <!-- JAVASCRIPT LOGIC -->
-    <script>
-        let currentUser = null;
+<script>
+let currentUser = null;
 
-        document.addEventListener('DOMContentLoaded', checkSession);
+async function checkAuth() {
+  const res = await fetch('/me');
+  const data = await res.json();
+  if (data.logged_in) {
+    currentUser = data.user;
+    document.getElementById('login-section').classList.add('hidden');
+    document.getElementById('app-section').classList.remove('hidden');
+    document.getElementById('user-display').innerText = currentUser.email;
+    document.getElementById('role-display').innerText = currentUser.role;
 
-        async function checkSession() {
-            try {
-                const res = await fetch('/me');
-                const data = await res.json();
-                if (data.logged_in) {
-                    currentUser = data.user;
-                    setupDashboard();
-                } else {
-                    showLogin();
-                }
-            } catch (err) {
-                showLogin();
-            }
-        }
+    if (currentUser.role === 'admin') {
+      document.getElementById('admin-panel').classList.remove('hidden');
+      loadAdminUsers();
+    }
+    loadSchools();
+  } else {
+    document.getElementById('login-section').classList.remove('hidden');
+    document.getElementById('app-section').classList.add('hidden');
+  }
+}
 
-        function showLogin() {
-            document.getElementById('loginSection').classList.remove('hidden');
-            document.getElementById('dashboardSection').classList.add('hidden');
-            document.getElementById('userInfo').classList.add('hidden');
-        }
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const res = await fetch('/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: document.getElementById('login-email').value,
+      password: document.getElementById('login-password').value
+    })
+  });
+  const data = await res.json();
+  if (res.ok) {
+    checkAuth();
+  } else {
+    alert(data.error || 'Login failed');
+  }
+});
 
-        function setupDashboard() {
-            document.getElementById('loginSection').classList.add('hidden');
-            document.getElementById('dashboardSection').classList.remove('hidden');
-            document.getElementById('userInfo').classList.remove('hidden');
-            document.getElementById('userInfo').classList.add('flex');
+async function logout() {
+  await fetch('/logout', { method: 'POST' });
+  location.reload();
+}
 
-            document.getElementById('userEmail').textContent = currentUser.email;
-            document.getElementById('userRoleBadge').textContent = currentUser.role;
+async function loadSchools() {
+  const res = await fetch('/schools');
+  const data = await res.json();
+  
+  const activeSelect = document.getElementById('active-school-select');
+  const newUserSchool = document.getElementById('new-user-school');
+  const assignSchoolSelect = document.getElementById('assign-school-select');
 
-            if (currentUser.role === 'admin') {
-                document.getElementById('adminPanel').classList.remove('hidden');
-            } else {
-                document.getElementById('adminPanel').classList.add('hidden');
-            }
+  activeSelect.innerHTML = '';
+  if (newUserSchool) newUserSchool.innerHTML = '<option value="">(None)</option>';
+  if (assignSchoolSelect) assignSchoolSelect.innerHTML = '<option value="">(None)</option>';
 
-            loadSchools();
-        }
+  data.schools.forEach(s => {
+    activeSelect.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+    if (newUserSchool) newUserSchool.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+    if (assignSchoolSelect) assignSchoolSelect.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+  });
 
-        async function handleLogin(e) {
-            e.preventDefault();
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
+  if (data.schools.length > 0) {
+    loadStudents();
+  }
+}
 
-            const res = await fetch('/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
-            });
+async function loadAdminUsers() {
+  const res = await fetch('/admin/users');
+  if (!res.ok) return;
+  const data = await res.json();
 
-            const data = await res.json();
-            if (res.ok) {
-                currentUser = data.user;
-                setupDashboard();
-            } else {
-                const errDiv = document.getElementById('loginError');
-                errDiv.textContent = data.error || 'Login failed';
-                errDiv.classList.remove('hidden');
-            }
-        }
+  const tbody = document.getElementById('user-table-body');
+  const assignUserSelect = document.getElementById('assign-user-select');
 
-        async function logout() {
-            await fetch('/logout', { method: 'POST' });
-            window.location.reload();
-        }
+  tbody.innerHTML = '';
+  assignUserSelect.innerHTML = '';
 
-        async function loadSchools() {
-            const res = await fetch('/schools');
-            const data = await res.json();
-            
-            const schoolSelect = document.getElementById('schoolSelect');
-            const newUserSchool = document.getElementById('newUserSchool');
+  data.users.forEach(u => {
+    assignUserSelect.innerHTML += `<option value="${u.id}">${u.email}</option>`;
+    
+    tbody.innerHTML += `
+      <tr>
+        <td>${u.id}</td>
+        <td>${u.email}</td>
+        <td>${u.role}</td>
+        <td>${u.school_name}</td>
+        <td>
+          <button class="btn-danger" onclick="deleteUser(${u.id}, '${u.email}')">Delete</button>
+        </td>
+      </tr>
+    `;
+  });
+}
 
-            schoolSelect.innerHTML = '<option value="">Select School...</option>';
-            newUserSchool.innerHTML = '<option value="">Assign School...</option>';
+async function addUser() {
+  const email = document.getElementById('new-user-email').value;
+  const password = document.getElementById('new-user-password').value;
+  const role = document.getElementById('new-user-role').value;
+  const school_id = document.getElementById('new-user-school').value;
 
-            data.schools.forEach(s => {
-                schoolSelect.innerHTML += `<option value="${s.id}">${s.name}</option>`;
-                newUserSchool.innerHTML += `<option value="${s.id}">${s.name}</option>`;
-            });
+  const res = await fetch('/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, role, school_id })
+  });
 
-            if (data.schools.length > 0) {
-                schoolSelect.value = data.schools[0].id;
-                loadStudents();
-            }
-        }
+  const data = await res.json();
+  if (res.ok) {
+    alert(data.message);
+    loadAdminUsers();
+  } else {
+    alert(data.error);
+  }
+}
 
-        async function loadStudents() {
-            const schoolId = document.getElementById('schoolSelect').value;
-            if (!schoolId) return;
+async function deleteUser(userId, email) {
+  if (!confirm(`Are you sure you want to delete user ${email}?`)) return;
 
-            const search = document.getElementById('searchInput').value;
-            const grade = document.getElementById('gradeFilter').value;
-            const chronic = document.getElementById('chronicToggle').checked;
-            const sort = document.getElementById('sortFilter').value;
+  const res = await fetch(`/admin/users/${userId}`, { method: 'DELETE' });
+  const data = await res.json();
 
-            const url = `/students?school_id=${schoolId}&search=${encodeURIComponent(search)}&grade=${encodeURIComponent(grade)}&chronic=${chronic}&sort=${sort}`;
-            const res = await fetch(url);
-            const data = await res.json();
+  if (res.ok) {
+    alert(data.message);
+    loadAdminUsers();
+  } else {
+    alert(data.error || 'Failed to delete user.');
+  }
+}
 
-            document.getElementById('metricTotalMembership').textContent = data.total_students;
-            document.getElementById('metricChronicCount').textContent = data.chronic_count;
-            document.getElementById('metricChronicPct').textContent = `${data.chronic_rate_pct}%`;
+async function assignSchool() {
+  const user_id = document.getElementById('assign-user-select').value;
+  const school_id = document.getElementById('assign-school-select').value;
 
-            const gradeFilter = document.getElementById('gradeFilter');
-            const selectedGrade = gradeFilter.value;
-            gradeFilter.innerHTML = '<option value="">All Grades</option>';
-            data.available_grades.forEach(g => {
-                gradeFilter.innerHTML += `<option value="${g}" ${g === selectedGrade ? 'selected' : ''}>Grade ${g}</option>`;
-            });
+  const res = await fetch('/admin/assign-school', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id, school_id })
+  });
 
-            const tbody = document.getElementById('studentTableBody');
-            tbody.innerHTML = '';
+  const data = await res.json();
+  if (res.ok) {
+    alert(data.message);
+    loadAdminUsers();
+  } else {
+    alert(data.error);
+  }
+}
 
-            document.getElementById('studentStats').textContent = `Showing ${data.students.length} of ${data.total_students} Students`;
+async function loadStudents() {
+  const schoolId = document.getElementById('active-school-select').value;
+  if (!schoolId) return;
 
-            if (data.students.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" class="text-center p-8 text-slate-400 font-medium">No student records found matching filters.</td></tr>';
-                return;
-            }
+  const search = document.getElementById('search-input').value;
+  const sort = document.getElementById('sort-select').value;
+  const chronic = document.getElementById('chronic-filter').checked;
 
-            data.students.forEach(s => {
-                const statusBadge = s.is_chronic 
-                    ? '<span class="bg-red-100 text-red-700 font-bold text-xs px-2.5 py-1 rounded-full inline-flex items-center"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Chronic</span>' 
-                    : '<span class="bg-emerald-100 text-emerald-800 font-semibold text-xs px-2.5 py-1 rounded-full">On Track</span>';
+  const res = await fetch(`/students?school_id=${schoolId}&search=${search}&sort=${sort}&chronic=${chronic}`);
+  const data = await res.json();
 
-                tbody.innerHTML += `
-                    <tr class="hover:bg-slate-50/80 transition">
-                        <td class="p-4 font-mono font-medium text-slate-700">${s.student_id}</td>
-                        <td class="p-4 font-semibold text-slate-900">${s.student_name}</td>
-                        <td class="p-4 text-slate-600">${s.grade}</td>
-                        <td class="p-4 text-center font-bold text-red-600">${s.days_absent}</td>
-                        <td class="p-4 text-center font-bold text-amber-600">${s.unexcused_absences || 0}</td>
-                        <td class="p-4 text-center text-slate-600">${s.total_days}</td>
-                        <td class="p-4 text-center font-bold">${s.attendance_rate_pct}%</td>
-                        <td class="p-4">${statusBadge}</td>
-                        <td class="p-4 text-center">
-                            <button onclick="openInterventionModal(${s.db_id}, '${s.student_name.replace(/'/g, "\\'")}')" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold px-3 py-1.5 rounded-lg transition border border-indigo-200">
-                                <i class="fa-solid fa-clipboard-user mr-1"></i> Log Action (${s.interventions_count})
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            });
-        }
+  const tbody = document.getElementById('student-table-body');
+  tbody.innerHTML = '';
 
-        async function confirmResetSchoolData() {
-            const schoolSelect = document.getElementById('schoolSelect');
-            const schoolId = schoolSelect.value;
-            const schoolName = schoolSelect.options[schoolSelect.selectedIndex]?.text || "Selected School";
+  data.students.forEach(s => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${s.student_id}</td>
+        <td>${s.student_name}</td>
+        <td>${s.grade || '-'}</td>
+        <td>${s.days_absent}</td>
+        <td>${s.unexcused_absences}</td>
+        <td>${s.attendance_rate_pct}%</td>
+        <td>${s.is_chronic ? '<span class="badge-chronic">CHRONIC</span>' : 'Regular'}</td>
+        <td>Interventions (${s.interventions_count})</td>
+      </tr>
+    `;
+  });
+}
 
-            if (!schoolId) {
-                return alert('Please select a school first.');
-            }
+document.getElementById('upload-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const schoolId = document.getElementById('active-school-select').value;
+  const fileInput = document.getElementById('csv-file');
 
-            const warningMessage = `Are you sure you want to clear all student and intervention data for "${schoolName}"?\n\nThis action cannot be undone.`;
+  const formData = new FormData();
+  formData.append('school_id', schoolId);
+  formData.append('file', fileInput.files[0]);
 
-            if (confirm(warningMessage)) {
-                try {
-                    const res = await fetch(`/schools/${schoolId}/reset-data`, {
-                        method: 'DELETE'
-                    });
+  const res = await fetch('/upload', { method: 'POST', body: formData });
+  const data = await res.json();
 
-                    const data = await res.json();
-                    if (res.ok) {
-                        alert(data.message);
-                        loadStudents();
-                    } else {
-                        alert(data.error || 'Failed to clear school data.');
-                    }
-                } catch (err) {
-                    alert('An error occurred while attempting to clear data.');
-                }
-            }
-        }
+  if (res.ok) {
+    alert(data.message);
+    loadStudents();
+  } else {
+    alert(data.error);
+  }
+});
 
-        async function openInterventionModal(studentDbId, studentName) {
-            document.getElementById('modalStudentDbId').value = studentDbId;
-            document.getElementById('modalStudentTitle').textContent = `Log Action for ${studentName}`;
-            document.getElementById('intDate').value = new Date().toISOString().split('T')[0];
-            document.getElementById('intNotes').value = '';
-
-            const res = await fetch(`/interventions?student_db_id=${studentDbId}`);
-            const data = await res.json();
-            
-            const listDiv = document.getElementById('previousInterventionsList');
-            listDiv.innerHTML = '';
-
-            if (data.interventions.length === 0) {
-                listDiv.innerHTML = '<div class="text-slate-400 italic">No previous actions logged for this student.</div>';
-            } else {
-                data.interventions.forEach(i => {
-                    listDiv.innerHTML += `
-                        <div class="p-2 bg-slate-50 border rounded-lg">
-                            <div class="flex justify-between font-bold text-slate-800">
-                                <span>${i.type}</span>
-                                <span>${i.date}</span>
-                            </div>
-                            <div class="text-slate-600">${i.notes || 'No details provided'}</div>
-                            <div class="text-[10px] text-slate-400 mt-1">Logged by: ${i.logged_by}</div>
-                        </div>
-                    `;
-                });
-            }
-
-            document.getElementById('interventionModal').classList.remove('hidden');
-        }
-
-        function closeInterventionModal() {
-            document.getElementById('interventionModal').classList.add('hidden');
-        }
-
-        async function handleSaveIntervention(e) {
-            e.preventDefault();
-            const student_db_id = document.getElementById('modalStudentDbId').value;
-            const date = document.getElementById('intDate').value;
-            const type = document.getElementById('intType').value;
-            const notes = document.getElementById('intNotes').value;
-
-            const res = await fetch('/interventions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ student_db_id, date, type, notes })
-            });
-
-            if (res.ok) {
-                closeInterventionModal();
-                loadStudents();
-            } else {
-                alert('Failed to log intervention');
-            }
-        }
-
-        async function handleFileUpload(e) {
-            e.preventDefault();
-            const schoolId = document.getElementById('schoolSelect').value;
-            if (!schoolId) return alert('Please select a school first!');
-
-            const fileInput = document.getElementById('csvFile');
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-            formData.append('school_id', schoolId);
-
-            const res = await fetch('/upload', {
-                method: 'POST',
-                body: formData
-            });
-
-            const data = await res.json();
-            if (res.ok) {
-                alert(data.message);
-                loadStudents();
-            } else {
-                alert(data.error || 'Upload failed');
-            }
-        }
-
-        async function handleAddSchool(e) {
-            e.preventDefault();
-            const name = document.getElementById('newSchoolName').value;
-            const res = await fetch('/admin/schools', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
-            });
-            if (res.ok) {
-                document.getElementById('newSchoolName').value = '';
-                loadSchools();
-                alert('School created successfully!');
-            } else {
-                const data = await res.json();
-                alert(data.error || 'Failed to create school');
-            }
-        }
-
-        async function handleAddUser(e) {
-            e.preventDefault();
-            const email = document.getElementById('newUserEmail').value;
-            const password = document.getElementById('newUserPassword').value;
-            const role = document.getElementById('newUserRole').value;
-            const school_id = document.getElementById('newUserSchool').value;
-
-            const res = await fetch('/admin/users', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password, role, school_id })
-            });
-
-            if (res.ok) {
-                document.getElementById('newUserEmail').value = '';
-                document.getElementById('newUserPassword').value = '';
-                alert('Staff account created successfully!');
-            } else {
-                const data = await res.json();
-                alert(data.error || 'Failed to create user');
-            }
-        }
-
-        function exportInterventions() {
-            const schoolId = document.getElementById('schoolSelect').value;
-            if (!schoolId) return alert('Please select a school first!');
-            window.location.href = `/export/interventions?school_id=${schoolId}`;
-        }
-    </script>
+// Run auth check on page load
+checkAuth();
+</script>
 </body>
 </html>
