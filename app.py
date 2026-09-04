@@ -41,7 +41,7 @@ class StudentRecord(db.Model):
     absences = db.Column(db.Float, default=0.0)
     tardies = db.Column(db.Integer, default=0)
     total_days = db.Column(db.Integer, default=180)
-    present_fte = db.Column(db.Float, nullable=True)  # Populated from PresentFTE / Column V (< 0.90 threshold)
+    present_fte = db.Column(db.Float, nullable=True)
 
     school = db.relationship('School', backref=db.backref('students', lazy=True, cascade="all, delete-orphan"))
     interventions = db.relationship('Intervention', backref='student', lazy=True, cascade="all, delete-orphan")
@@ -110,8 +110,8 @@ INDEX_HTML = """
     <style>
         :root { --primary: #2563eb; --primary-hover: #1d4ed8; --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #64748b; --border: #e2e8f0; --danger-bg: #fef2f2; --danger-text: #991b1b; --success-bg: #f0fdf4; --success-text: #166534; }
         body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; }
-        .navbar { background: var(--card); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-        .user-info { display: flex; align-items: center; gap: 1rem; }
+        .navbar { background: var(--card); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+        .user-info { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
         .container { max-width: 1200px; margin: 2rem auto; padding: 0 1.5rem; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
         .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }
@@ -123,13 +123,14 @@ INDEX_HTML = """
         .card-title { font-size: 1.1rem; font-weight: 600; margin: 0; }
         .form-row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
         input, select, textarea { padding: 0.6rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.875rem; font-family: inherit; }
-        .btn { background: var(--primary); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; font-weight: 600; cursor: pointer; text-decoration: none; font-size: 0.875rem; }
+        .btn { background: var(--primary); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; font-weight: 600; cursor: pointer; text-decoration: none; font-size: 0.875rem; display: inline-flex; align-items: center; }
         .btn:hover { background: var(--primary-hover); }
         .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
         .btn-outline:hover { background: var(--bg); }
+        .btn-danger { background: #dc2626; color: white; }
+        .btn-danger:hover { background: #b91c1c; }
         .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.78rem; border-radius: 4px; }
         
-        /* Filter Buttons */
         .filter-btn-group { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
         .filter-btn { background: var(--card); border: 1px solid var(--border); padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--muted); transition: all 0.15s ease; }
         .filter-btn:hover { background: var(--bg); color: var(--text); }
@@ -145,7 +146,6 @@ INDEX_HTML = """
         .alert-success { background: var(--success-bg); color: var(--success-text); border: 1px solid #bbf7d0; }
         .alert-error { background: var(--danger-bg); color: var(--danger-text); border: 1px solid #fecaca; }
 
-        /* Modal styling */
         .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(2px); justify-content: center; align-items: center; }
         .modal-content { background: var(--card); width: 100%; max-width: 520px; border-radius: 12px; padding: 1.75rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); border: 1px solid var(--border); }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
@@ -155,10 +155,25 @@ INDEX_HTML = """
 <body>
     <div class="navbar">
         <div style="font-weight:700; font-size:1.25rem;">📊 Chronic Absenteeism Tracker</div>
+        
         <div class="user-info">
+            {% if current_user.role == 'Admin' %}
+            <!-- ADMIN SCHOOL SELECTOR DROPDOWN -->
+            <form method="GET" action="/" style="margin:0; display:flex; align-items:center; gap:0.5rem;">
+                <label style="font-size:0.85rem; font-weight:600; color:var(--muted);">Active School:</label>
+                <select name="school_id" onchange="this.form.submit()" style="font-weight:600; background:#f1f5f9; border-color:#cbd5e1;">
+                    <option value="all" {% if selected_school_id == 'all' %}selected{% endif %}>All Schools (District View)</option>
+                    {% for sch in schools %}
+                    <option value="{{ sch.id }}" {% if selected_school_id == sch.id|string %}selected{% endif %}>{{ sch.name }}</option>
+                    {% endfor %}
+                </select>
+            </form>
+            {% else %}
+            <span style="font-weight:600; font-size:0.9rem;">🏫 {{ active_school_name }}</span>
+            {% endif %}
+
             <span style="font-size:0.875rem; color:var(--muted);">
-                Logged in as: <strong>{{ current_user.username }}</strong> ({{ current_user.role }}) 
-                {% if current_user.school %} &bull; <em>{{ current_user.school.name }}</em>{% endif %}
+                User: <strong>{{ current_user.username }}</strong> ({{ current_user.role }})
             </span>
             <a href="/logout" class="btn btn-outline" style="color:var(--danger-text);">Sign Out</a>
         </div>
@@ -172,6 +187,21 @@ INDEX_HTML = """
             {% endfor %}
           {% endif %}
         {% endwith %}
+
+        <!-- Active View Notification Banner -->
+        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:0.85rem 1.25rem; margin-bottom:1.5rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+            <div style="font-size:0.9rem; color:#1e40af;">
+                Showing Data For: <strong>{{ active_school_name }}</strong>
+            </div>
+            
+            {% if current_user.role == 'Admin' and selected_school_id != 'all' %}
+            <!-- Clear Data Button for Specific Selected School -->
+            <form method="POST" action="/clear_school_data" onsubmit="return confirm('Are you sure you want to delete ALL student records for {{ active_school_name }}? This action cannot be undone.');" style="margin:0;">
+                <input type="hidden" name="school_id" value="{{ selected_school_id }}">
+                <button type="submit" class="btn btn-danger btn-sm">🗑️ Clear Data For {{ active_school_name }}</button>
+            </form>
+            {% endif %}
+        </div>
 
         <!-- Metrics Overview -->
         <div class="metrics-grid">
@@ -235,12 +265,22 @@ INDEX_HTML = """
             <div class="card">
                 <h3 class="card-title" style="margin-bottom:1rem;">Add Single Student</h3>
                 <form method="POST" action="/add_student" style="display:flex; flex-direction:column; gap:0.75rem;">
+                    {% if current_user.role == 'Admin' %}
+                    <div class="form-row">
+                        <select name="school_id" style="flex:1;" required>
+                            <option value="">Select Target School...</option>
+                            {% for school in schools %}
+                            <option value="{{ school.id }}" {% if selected_school_id == school.id|string %}selected{% endif %}>{{ school.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
                     <div class="form-row">
                         <input type="text" name="student_id" placeholder="Student ID" required style="flex:1;">
                         <input type="text" name="name" placeholder="Student Name" required style="flex:2;">
                     </div>
                     <div class="form-row">
-                        <input type="text" name="grade" placeholder="Grade Level (e.g. 6, 7, 8)" style="flex:1;">
+                        <input type="text" name="grade" placeholder="Grade (e.g. 6, 7, 8)" style="flex:1;">
                         <input type="number" step="0.5" name="absences" placeholder="Absences" value="0" style="width:100px;">
                         <input type="number" name="tardies" placeholder="Tardies" value="0" style="width:90px;">
                         <button type="submit" class="btn">Add Student</button>
@@ -256,7 +296,7 @@ INDEX_HTML = """
                         <select name="school_id" style="flex:1;" required>
                             <option value="">Target School for Import...</option>
                             {% for school in schools %}
-                            <option value="{{ school.id }}">{{ school.name }}</option>
+                            <option value="{{ school.id }}" {% if selected_school_id == school.id|string %}selected{% endif %}>{{ school.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -265,7 +305,7 @@ INDEX_HTML = """
                         <input type="file" name="file" accept=".csv" required style="flex:1;">
                         <button type="submit" class="btn">Import CSV</button>
                     </div>
-                    <small style="color:var(--muted);">Reads Column V (PresentFTE &lt; 90%) for precise daily chronic absenteeism calculation.</small>
+                    <small style="color:var(--muted);">Upload replaces existing student roster for the target school, ensuring clean separation.</small>
                 </form>
             </div>
         </div>
@@ -353,7 +393,7 @@ INDEX_HTML = """
                     {% else %}
                     <tr>
                         <td colspan="9" style="text-align: center; color: var(--muted); padding: 2rem;">
-                            No student record data available for this scope.
+                            No student record data available for this school scope.
                         </td>
                     </tr>
                     {% endfor %}
@@ -398,7 +438,6 @@ INDEX_HTML = """
         </div>
     </div>
 
-    <!-- Client-side Custom Filter Logic -->
     <script>
         let currentFilter = 'chronic';
 
@@ -510,12 +549,26 @@ def index():
     if not user:
         return redirect(url_for('login'))
 
+    schools = School.query.all()
+    selected_school_id = request.args.get('school_id', 'all')
+
+    # Filter logic based on Role and Dropdown selection
     if user.role == 'Admin':
-        records = StudentRecord.query.all()
+        if selected_school_id != 'all':
+            try:
+                s_id = int(selected_school_id)
+                records = StudentRecord.query.filter_by(school_id=s_id).all()
+                active_sch = School.query.get(s_id)
+                active_school_name = active_sch.name if active_sch else 'Selected School'
+            except ValueError:
+                records = StudentRecord.query.all()
+                active_school_name = 'All District Schools'
+        else:
+            records = StudentRecord.query.all()
+            active_school_name = 'All District Schools'
     else:
         records = StudentRecord.query.filter_by(school_id=user.school_id).all()
-
-    schools = School.query.all()
+        active_school_name = user.school.name if user.school else 'Assigned School'
 
     students_data = []
     total_students = len(records)
@@ -526,7 +579,6 @@ def index():
         tardy_absences = r.tardies // TARDY_CONVERSION_FACTOR
         adjusted_absences = r.absences + tardy_absences
 
-        # PresentFTE handling (supports both ratio <= 1.0 e.g. 0.88 and percentage e.g. 88.0)
         if r.present_fte is not None:
             val = r.present_fte
             fte_ratio = val / 100.0 if val > 1.0 else val
@@ -536,7 +588,6 @@ def index():
             fte_ratio = max(0.0, 1.0 - calc_abs_rate)
             present_fte_pct = fte_ratio * 100.0
 
-        # Chronically absent if PresentFTE < 90% (ratio < 0.90)
         is_chronic = fte_ratio < 0.90
 
         if is_chronic:
@@ -566,7 +617,6 @@ def index():
             'interventions': interventions_logged
         })
 
-    # Chronic Absenteeism Rate = (Chronic Students < 0.90 PresentFTE / Total Students) * 100
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
 
     return render_template_string(
@@ -577,7 +627,9 @@ def index():
         total_students=total_students,
         at_risk_count=at_risk_count,
         chronic_rate=chronic_rate,
-        available_grades=sorted(list(grades_set))
+        available_grades=sorted(list(grades_set)),
+        selected_school_id=selected_school_id,
+        active_school_name=active_school_name
     )
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -600,6 +652,28 @@ def logout():
     session.pop('user_id', None)
     return redirect(url_for('login'))
 
+@app.route('/clear_school_data', methods=['POST'])
+def clear_school_data():
+    user = get_current_user()
+    if not user or user.role != 'Admin':
+        flash('Unauthorized action.', 'error')
+        return redirect(url_for('index'))
+
+    school_id = request.form.get('school_id')
+    if school_id and school_id != 'all':
+        try:
+            s_id = int(school_id)
+            school = School.query.get(s_id)
+            deleted_count = StudentRecord.query.filter_by(school_id=s_id).delete()
+            db.session.commit()
+            flash(f'Cleared {deleted_count} student records for school: {school.name if school else "Selected School"}.', 'success')
+            return redirect(url_for('index', school_id=s_id))
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error clearing data: {str(e)}', 'error')
+
+    return redirect(url_for('index'))
+
 @app.route('/add_school', methods=['POST'])
 def add_school():
     user = get_current_user()
@@ -616,6 +690,7 @@ def add_school():
             db.session.add(school)
             db.session.commit()
             flash(f'School "{name}" added successfully!', 'success')
+            return redirect(url_for('index', school_id=school.id))
         except Exception as e:
             db.session.rollback()
             flash(f'Error adding school: {str(e)}', 'error')
@@ -688,19 +763,21 @@ def add_student():
 
     school_id = user.school_id if user.role != 'Admin' else request.form.get('school_id')
 
-    if student_id and name:
+    if student_id and name and school_id:
         student = StudentRecord(
             student_id=student_id.strip(),
             name=name.strip(),
             grade=grade.strip() if grade else 'N/A',
-            school_id=school_id,
+            school_id=int(school_id),
             absences=absences,
             tardies=tardies
         )
         db.session.add(student)
         db.session.commit()
         flash('Student added successfully!', 'success')
+        return redirect(url_for('index', school_id=school_id))
 
+    flash('Error adding student. Please select a school.', 'error')
     return redirect(url_for('index'))
 
 @app.route('/upload_csv', methods=['POST'])
@@ -719,8 +796,12 @@ def upload_csv():
         return redirect(url_for('index'))
 
     school_id = user.school_id if user.role != 'Admin' else request.form.get('school_id')
+    if not school_id:
+        flash('Please select a target school before uploading.', 'error')
+        return redirect(url_for('index'))
 
     try:
+        s_id = int(school_id)
         content = file.stream.read().decode('utf-8-sig')
         stream = io.StringIO(content, newline=None)
 
@@ -733,7 +814,6 @@ def upload_csv():
         headers = [h.strip() for h in rows_list[0]]
         headers_lower = [h.lower() for h in headers]
 
-        # Locate PresentFTE column by header or position (Column V = Index 21)
         fte_col_idx = None
         for key in ['presentfte', 'present_fte', 'presentft', 'present fte', 'att_rate']:
             if key in headers_lower:
@@ -743,8 +823,8 @@ def upload_csv():
         if fte_col_idx is None and len(headers) > 21:
             fte_col_idx = 21
 
-        if school_id:
-            StudentRecord.query.filter_by(school_id=school_id).delete()
+        # Clean existing records ONLY for the target school to avoid merging
+        StudentRecord.query.filter_by(school_id=s_id).delete()
 
         imported_count = 0
         for raw_row in rows_list[1:]:
@@ -774,10 +854,8 @@ def upload_csv():
 
             absences_raw = row_dict.get('currentschoolabsences7') or row_dict.get('absences') or '0'
             absences = parse_float(absences_raw)
-
             tardies = parse_int(row_dict.get('tardies') or '0')
 
-            # Parse PresentFTE value directly
             present_fte_val = None
             if fte_col_idx is not None and len(raw_row) > fte_col_idx:
                 present_fte_val = parse_float(raw_row[fte_col_idx], default=None)
@@ -787,7 +865,7 @@ def upload_csv():
                     student_id=student_id if student_id else "N/A",
                     name=name if name else "Unknown Student",
                     grade=str(grade),
-                    school_id=school_id,
+                    school_id=s_id,
                     absences=absences,
                     tardies=tardies,
                     present_fte=present_fte_val
@@ -797,9 +875,11 @@ def upload_csv():
 
         db.session.commit()
         if imported_count > 0:
-            flash(f'Success! Imported {imported_count} student record(s) with PresentFTE metric.', 'success')
+            flash(f'Success! Imported {imported_count} student record(s) for school ID {s_id}.', 'success')
         else:
             flash('CSV uploaded, but 0 valid student rows were found.', 'error')
+
+        return redirect(url_for('index', school_id=s_id))
 
     except Exception as e:
         db.session.rollback()
