@@ -168,8 +168,15 @@ class StudentRecord(db.Model):
 
 def init_db():
     with app.app_context():
-        # Drop old/mismatched tables and recreate clean schema
-        db.drop_all()
+        # Force-drop all tables and foreign key constraints in PostgreSQL
+        try:
+            db.session.execute(db.text('DROP SCHEMA public CASCADE;'))
+            db.session.execute(db.text('CREATE SCHEMA public;'))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        # Recreate clean tables based on current app models
         db.create_all()
         
         # Seed default admin user
