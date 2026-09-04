@@ -287,7 +287,7 @@ INDEX_HTML = """
                         <input type="file" name="file" accept=".csv" required style="flex:1;">
                         <button type="submit" class="btn">Import CSV</button>
                     </div>
-                    <small style="color:var(--muted);">CSV format: <code>student_id, name, absences, tardies, total_days</code></small>
+                    <small style="color:var(--muted);">Supports standard CSV files & District BI Attendance reports.</small>
                 </form>
             </div>
         </div>
@@ -403,7 +403,7 @@ def init_db():
 
         mms = School.query.filter_by(code='MMS').first()
         if not mms:
-            mms = School(name='Madison Middle School', code='MMS')
+            mms = School(name='Highland Middle School', code='HMS')
             db.session.add(mms)
 
         db.session.commit()
@@ -417,13 +417,13 @@ def init_db():
             )
             db.session.add(admin)
 
-        # Seed sample staff user assigned to Lincoln High
-        if not User.query.filter_by(username='lincoln_staff').first():
+        # Seed sample staff user
+        if not User.query.filter_by(username='highland_staff').first():
             staff = User(
-                username='lincoln_staff',
+                username='highland_staff',
                 password_hash=generate_password_hash('staff123'),
                 role='Staff',
-                school_id=lhs.id
+                school_id=mms.id
             )
             db.session.add(staff)
 
@@ -659,8 +659,15 @@ def upload_csv():
         elif user.role == 'Admin':
             StudentRecord.query.filter_by(school_id=None).delete()
 
+        imported_count = 0
         for row in csv_input:
             clean_row = {str(k).strip().lower(): str(v).strip() for k, v in row.items() if k}
+
+            def parse_float(val, default=0.0):
+                try:
+                    return float(val) if val else default
+                except ValueError:
+                    return default
 
             def parse_int(val, default=0):
                 try:
@@ -668,25 +675,58 @@ def upload_csv():
                 except ValueError:
                     return default
 
-            student_id = clean_row.get('student_id') or clean_row.get('student id') or clean_row.get('id', '')
-            name = clean_row.get('name') or clean_row.get('student name') or clean_row.get('student_name', '')
-            absences = parse_int(clean_row.get('absences'))
-            tardies = parse_int(clean_row.get('tardies'))
-            total_days = parse_int(clean_row.get('total_days') or clean_row.get('total days'), default=180)
+            # Column lookups including Infinite Campus / District BI exports
+            student_id = (
+                clean_row.get('studentnumber') or 
+                clean_row.get('student_id') or 
+                clean_row.get('student id') or 
+                clean_row.get('id') or 
+                clean_row.get('student_number') or ''
+            )
+            
+            name = (
+                clean_row.get('studentname') or 
+                clean_row.get('student_name') or 
+                clean_row.get('student name') or 
+                clean_row.get('name') or ''
+            )
+
+            # Absence mapping (handles decimals like 1.5 days)
+            absences_raw = (
+                clean_row.get('currentschoolabsences7') or 
+                clean_row.get('totalabsenceindistrict_hdwd10') or 
+                clean_row.get('absences') or '0'
+            )
+            absences = parse_int(parse_float(absences_raw))
+
+            # Tardies & Membership days
+            tardies = parse_int(clean_row.get('tardies') or clean_row.get('unexcusedabsences') or '0')
+            
+            total_days_raw = (
+                clean_row.get('currentschoolmembershipdays11') or 
+                clean_row.get('totalmembershipdaysindistrict10') or 
+                clean_row.get('total_days') or '180'
+            )
+            total_days = parse_int(parse_float(total_days_raw), default=180)
 
             if student_id or name:
                 student = StudentRecord(
-                    student_id=student_id,
-                    name=name,
+                    student_id=student_id if student_id else "N/A",
+                    name=name if name else "Unknown Student",
                     school_id=school_id,
                     absences=absences,
                     tardies=tardies,
-                    total_days=total_days
+                    total_days=total_days if total_days > 0 else 180
                 )
                 db.session.add(student)
+                imported_count += 1
 
         db.session.commit()
-        flash('Attendance CSV processed and roster updated!', 'success')
+        if imported_count > 0:
+            flash(f'Success! Imported {imported_count} student record(s).', 'success')
+        else:
+            flash('CSV uploaded, but 0 valid student rows were found.', 'error')
+
     except Exception as e:
         db.session.rollback()
         flash(f'Error processing CSV: {str(e)}', 'error')
