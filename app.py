@@ -1,6 +1,7 @@
 import os
 import csv
 import io
+from datetime import datetime
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -35,12 +36,22 @@ class StudentRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(100), nullable=False)
+    grade = db.Column(db.String(20), nullable=True, default='N/A')
     school_id = db.Column(db.Integer, db.ForeignKey('school.id', ondelete='CASCADE'), nullable=True)
-    absences = db.Column(db.Integer, default=0)
+    absences = db.Column(db.Float, default=0.0)
     tardies = db.Column(db.Integer, default=0)
     total_days = db.Column(db.Integer, default=180)
 
     school = db.relationship('School', backref=db.backref('students', lazy=True, cascade="all, delete-orphan"))
+    interventions = db.relationship('Intervention', backref='student', lazy=True, cascade="all, delete-orphan")
+
+class Intervention(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_record_id = db.Column(db.Integer, db.ForeignKey('student_record.id', ondelete='CASCADE'), nullable=False)
+    action_type = db.Column(db.String(100), nullable=False)  # e.g., Phone Call, Meeting, Contract
+    notes = db.Column(db.Text, nullable=True)
+    logged_by = db.Column(db.String(80), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
 # --- HTML Templates ---
 
@@ -107,16 +118,22 @@ INDEX_HTML = """
         .metric-title { font-size: 0.875rem; color: var(--muted); margin-bottom: 0.5rem; }
         .metric-value { font-size: 1.75rem; font-weight: 700; }
         .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; margin-bottom: 2rem; }
-        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; }
         .card-title { font-size: 1.1rem; font-weight: 600; margin: 0; }
         .form-row { display: flex; gap: 0.75rem; align-items: center; }
-        input, select { padding: 0.6rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.875rem; }
+        input, select, textarea { padding: 0.6rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.875rem; font-family: inherit; }
         .btn { background: var(--primary); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; font-weight: 600; cursor: pointer; text-decoration: none; font-size: 0.875rem; }
         .btn:hover { background: var(--primary-hover); }
         .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
         .btn-outline:hover { background: var(--bg); }
-        .btn-danger { background: #dc2626; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.8rem; text-decoration: none; }
-        .btn-danger:hover { background: #b91c1c; }
+        .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.78rem; border-radius: 4px; }
+        
+        /* Filter Buttons */
+        .filter-btn-group { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+        .filter-btn { background: var(--card); border: 1px solid var(--border); padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--muted); transition: all 0.15s ease; }
+        .filter-btn:hover { background: var(--bg); color: var(--text); }
+        .filter-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+        
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem; }
         th, td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
         th { background: #f8fafc; color: var(--muted); }
@@ -126,9 +143,12 @@ INDEX_HTML = """
         .alert { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.875rem; }
         .alert-success { background: var(--success-bg); color: var(--success-text); border: 1px solid #bbf7d0; }
         .alert-error { background: var(--danger-bg); color: var(--danger-text); border: 1px solid #fecaca; }
-        details summary { cursor: pointer; font-weight: 600; color: var(--primary); font-size: 0.875rem; user-select: none; padding: 0.25rem 0; }
-        details summary:hover { text-decoration: underline; }
-        details[open] summary { margin-bottom: 0.75rem; }
+
+        /* Intervention Modal */
+        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(2px); justify-content: center; align-items: center; }
+        .modal-content { background: var(--card); width: 100%; max-width: 520px; border-radius: 12px; padding: 1.75rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); border: 1px solid var(--border); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--muted); }
     </style>
 </head>
 <body>
@@ -155,93 +175,18 @@ INDEX_HTML = """
         <!-- Metrics Overview -->
         <div class="metrics-grid">
             <div class="metric-card">
-                <div class="metric-title">Total Visible Students</div>
+                <div class="metric-title">Total Students</div>
                 <div class="metric-value">{{ total_students }}</div>
             </div>
             <div class="metric-card">
-                <div class="metric-title">Chronically Absent (&ge;10%)</div>
+                <div class="metric-title">Chronic Students (&ge;10%)</div>
                 <div class="metric-value" style="color: #dc2626;">{{ at_risk_count }}</div>
             </div>
             <div class="metric-card">
                 <div class="metric-title">Average Absenteeism Rate</div>
                 <div class="metric-value">{{ "%.1f"|format(avg_rate) }}%</div>
             </div>
-            {% if current_user.role == 'Admin' %}
-            <div class="metric-card">
-                <div class="metric-title">Registered Schools</div>
-                <div class="metric-value">{{ schools|length }}</div>
-            </div>
-            {% endif %}
         </div>
-
-        {% if current_user.role == 'Admin' %}
-        <!-- Admin-Only System Controls -->
-        <div class="grid-2">
-            <!-- Add & Manage Schools -->
-            <div class="card">
-                <h3 class="card-title" style="margin-bottom:1rem;">Manage Schools</h3>
-                <form method="POST" action="/add_school" class="form-row" style="margin-bottom:1rem;">
-                    <input type="text" name="name" placeholder="School Name" required style="flex:2;">
-                    <input type="text" name="code" placeholder="Code (e.g. LHS)" required style="flex:1;">
-                    <button type="submit" class="btn">Add School</button>
-                </form>
-
-                <details>
-                    <summary>View / Delete Registered Schools ({{ schools|length }})</summary>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Code</th>
-                                <th style="text-align:right;">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for school in schools %}
-                            <tr>
-                                <td><strong>{{ school.name }}</strong></td>
-                                <td><code>{{ school.code }}</code></td>
-                                <td style="text-align:right;">
-                                    <form method="POST" action="/delete_school/{{ school.id }}" style="display:inline;" onsubmit="return confirm('Are you sure? Deleting a school deletes all attached students!');">
-                                        <button type="submit" class="btn-danger">Delete</button>
-                                    </form>
-                                </td>
-                            </tr>
-                            {% else %}
-                            <tr>
-                                <td colspan="3" style="color:var(--muted); text-align:center;">No schools added yet.</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </details>
-            </div>
-
-            <!-- Manage Users -->
-            <div class="card">
-                <h3 class="card-title" style="margin-bottom:1rem;">Add System User</h3>
-                <form method="POST" action="/add_user" style="display:flex; flex-direction:column; gap:0.75rem;">
-                    <div class="form-row">
-                        <input type="text" name="username" placeholder="Username" required style="flex:1;">
-                        <input type="password" name="password" placeholder="Password" required style="flex:1;">
-                    </div>
-                    <div class="form-row">
-                        <select name="role" style="flex:1;">
-                            <option value="Staff">Staff</option>
-                            <option value="Admin">Admin</option>
-                        </select>
-                        <select name="school_id" style="flex:1;">
-                            <option value="">No School (Admin / Global)</option>
-                            {% for school in schools %}
-                            <option value="{{ school.id }}">{{ school.name }}</option>
-                            {% endfor %}
-                        </select>
-                        <button type="submit" class="btn">Create User</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-        {% endif %}
 
         <!-- Add Student & Import CSV -->
         <div class="grid-2">
@@ -253,17 +198,8 @@ INDEX_HTML = """
                         <input type="text" name="name" placeholder="Student Name" required style="flex:2;">
                     </div>
                     <div class="form-row">
-                        {% if current_user.role == 'Admin' %}
-                        <select name="school_id" style="flex:1;" required>
-                            <option value="">Assign School...</option>
-                            {% for school in schools %}
-                            <option value="{{ school.id }}">{{ school.name }} ({{ school.code }})</option>
-                            {% endfor %}
-                        </select>
-                        {% else %}
-                        <input type="text" value="{{ current_user.school.name if current_user.school else 'Unassigned' }}" disabled style="flex:1; background:#f1f5f9;">
-                        {% endif %}
-                        <input type="number" name="absences" placeholder="Absences" value="0" style="width:90px;">
+                        <input type="text" name="grade" placeholder="Grade Level (e.g., 6, 7, 8)" style="flex:1;">
+                        <input type="number" step="0.5" name="absences" placeholder="Absences" value="0" style="width:100px;">
                         <input type="number" name="tardies" placeholder="Tardies" value="0" style="width:90px;">
                         <button type="submit" class="btn">Add Student</button>
                     </div>
@@ -292,79 +228,82 @@ INDEX_HTML = """
             </div>
         </div>
 
-        {% if current_user.role == 'Admin' %}
-        <!-- Collapsible System Accounts List (Admin Only) -->
-        <div class="card">
-            <details>
-                <summary style="font-size: 1.1rem; font-weight: 600; color: var(--text);">Manage Existing User Accounts ({{ users|length }})</summary>
-                <table style="margin-top: 1rem;">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Username</th>
-                            <th>Role</th>
-                            <th>Assigned School Scope</th>
-                            <th style="text-align:right;">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for u in users %}
-                        <tr>
-                            <td>{{ u.id }}</td>
-                            <td><strong>{{ u.username }}</strong></td>
-                            <td><span class="badge badge-success">{{ u.role }}</span></td>
-                            <td>{{ u.school.name if u.school else 'Global Scope (All Schools)' }}</td>
-                            <td style="text-align:right;">
-                                {% if u.id != current_user.id %}
-                                <form method="POST" action="/delete_user/{{ u.id }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this user?');">
-                                    <button type="submit" class="btn-danger">Delete User</button>
-                                </form>
-                                {% else %}
-                                <span style="color:var(--muted); font-size:0.8rem;">Current Session</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </details>
-        </div>
-        {% endif %}
-
-        <!-- Student Roster -->
+        <!-- Roster Table with Explicit Filter Buttons -->
         <div class="card">
             <div class="card-header">
-                <h3 class="card-title">Student Attendance Roster</h3>
+                <h3 class="card-title">Attendance Roster View</h3>
+                <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+                    <!-- Filter Buttons -->
+                    <div class="filter-btn-group">
+                        <button class="filter-btn active" onclick="applyFilter('chronic', this)">Chronic Students</button>
+                        <button class="filter-btn" onclick="applyFilter('most-absences', this)">Most Absences</button>
+                        <button class="filter-btn" onclick="applyFilter('least-absences', this)">Least Absences</button>
+                    </div>
+
+                    <!-- Grade Level Selector Filter -->
+                    <select id="gradeSelect" onchange="applyFilter(currentFilter, null)" style="padding:0.5rem; font-size:0.85rem; font-weight:600; color:var(--muted); border-radius:6px; border:1px solid var(--border);">
+                        <option value="all">All Grade Levels</option>
+                        {% for g in available_grades %}
+                        <option value="{{ g }}">Grade {{ g }}</option>
+                        {% endfor %}
+                    </select>
+
+                    <!-- Search Input -->
+                    <input type="text" id="rosterSearch" onkeyup="applyFilter(currentFilter, null)" placeholder="Search name or ID..." style="width:200px;">
+                </div>
             </div>
+
             <table>
                 <thead>
                     <tr>
                         <th>Student ID</th>
                         <th>Name</th>
-                        <th>School</th>
+                        <th>Grade</th>
                         <th>Absences</th>
-                        <th>Tardies</th>
-                        <th>Adjusted Absences</th>
                         <th>Absenteeism %</th>
                         <th>Status</th>
+                        <th>Interventions Logged</th>
+                        <th style="text-align:right;">Action</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="rosterTableBody">
                     {% for student in students %}
-                    <tr>
+                    <tr class="roster-row" 
+                        data-chronic="{{ 'true' if student.rate >= 10.0 else 'false' }}"
+                        data-absences="{{ student.adjusted_absences }}"
+                        data-grade="{{ student.grade }}">
                         <td><strong>{{ student.student_id }}</strong></td>
-                        <td>{{ student.name }}</td>
-                        <td>{{ student.school_name }}</td>
-                        <td>{{ student.absences }}</td>
-                        <td>{{ student.tardies }}</td>
-                        <td>{{ student.adjusted_absences }}</td>
+                        <td class="student-name">{{ student.name }}</td>
+                        <td><span class="badge" style="background:#e2e8f0; color:#334155;">{{ student.grade }}</span></td>
+                        <td><strong>{{ student.adjusted_absences }}</strong></td>
                         <td>{{ "%.1f"|format(student.rate) }}%</td>
                         <td>
                             {% if student.rate >= 10.0 %}
-                                <span class="badge badge-danger">At Risk (Chronic)</span>
+                                <span class="badge badge-danger">Chronic (&ge;10%)</span>
                             {% else %}
                                 <span class="badge badge-success">On Track</span>
                             {% endif %}
+                        </td>
+                        <td>
+                            <details>
+                                <summary style="font-weight:600; font-size:0.8rem; cursor:pointer; color:var(--primary);">
+                                    View Logs ({{ student.interventions|length }})
+                                </summary>
+                                <div style="margin-top:0.5rem; font-size:0.8rem; background:#f1f5f9; padding:0.5rem; border-radius:6px;">
+                                    {% for log in student.interventions %}
+                                        <div style="border-bottom: 1px solid var(--border); padding-bottom:0.25rem; margin-bottom:0.25rem;">
+                                            <strong>{{ log.action_type }}</strong> &bull; <small>{{ log.timestamp }}</small><br>
+                                            <span style="color:var(--muted);">By: {{ log.logged_by }}</span>
+                                            {% if log.notes %}<p style="margin:0.25rem 0 0 0; font-style:italic;">"{{ log.notes }}"</p>{% endif %}
+                                        </div>
+                                    {% else %}
+                                        <em style="color:var(--muted);">No interventions recorded yet.</em>
+                                    {% endfor %}
+                                </div>
+                            </details>
+                        </td>
+                        <td style="text-align:right;">
+                            <button class="btn btn-sm" onclick="openInterventionModal('{{ student.id }}', '{{ student.name }}')">+ Log Action</button>
                         </td>
                     </tr>
                     {% else %}
@@ -378,11 +317,108 @@ INDEX_HTML = """
             </table>
         </div>
     </div>
+
+    <!-- Intervention Modal Structure -->
+    <div id="interventionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="margin:0;">Log Student Intervention</h3>
+                <button class="close-btn" onclick="closeInterventionModal()">&times;</button>
+            </div>
+            <form id="interventionForm" method="POST" action="/log_intervention">
+                <input type="hidden" name="student_db_id" id="modalStudentDbId">
+                <div style="margin-bottom:1rem;">
+                    <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Student Name</label>
+                    <input type="text" id="modalStudentName" disabled style="width:100%; background:#f1f5f9;">
+                </div>
+                <div style="margin-bottom:1rem;">
+                    <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Intervention Type</label>
+                    <select name="action_type" required style="width:100%;">
+                        <option value="Parent Phone Call">Parent Phone Call</option>
+                        <option value="Parent Email / Letter Sent">Parent Email / Letter Sent</option>
+                        <option value="Student Attendance Meeting">Student Attendance Meeting</option>
+                        <option value="Attendance Contract Signed">Attendance Contract Signed</option>
+                        <option value="Home Visit">Home Visit</option>
+                        <option value="Counselor Referral">Counselor Referral</option>
+                    </select>
+                </div>
+                <div style="margin-bottom:1rem;">
+                    <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Intervention Notes</label>
+                    <textarea name="notes" rows="3" placeholder="Provide details about outcome or next steps..." style="width:100%; box-sizing:border-box;"></textarea>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+                    <button type="button" class="btn btn-outline" onclick="closeInterventionModal()">Cancel</button>
+                    <button type="submit" class="btn">Save Intervention</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Client-side Script -->
+    <script>
+        let currentFilter = 'chronic';
+
+        function openInterventionModal(studentId, name) {
+            document.getElementById('modalStudentDbId').value = studentId;
+            document.getElementById('modalStudentName').value = name;
+            document.getElementById('interventionModal').style.display = 'flex';
+        }
+
+        function closeInterventionModal() {
+            document.getElementById('interventionModal').style.display = 'none';
+        }
+
+        function applyFilter(filterType, btnElement) {
+            currentFilter = filterType;
+            
+            if (btnElement) {
+                document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+                btnElement.classList.add('active');
+            }
+
+            const gradeFilter = document.getElementById('gradeSelect').value.toLowerCase();
+            const searchQuery = document.getElementById('rosterSearch').value.toLowerCase();
+            const tbody = document.getElementById('rosterTableBody');
+            const rows = Array.from(tbody.querySelectorAll('.roster-row'));
+
+            if (currentFilter === 'most-absences') {
+                rows.sort((a, b) => parseFloat(b.getAttribute('data-absences')) - parseFloat(a.getAttribute('data-absences')));
+            } else if (currentFilter === 'least-absences') {
+                rows.sort((a, b) => parseFloat(a.getAttribute('data-absences')) - parseFloat(b.getAttribute('data-absences')));
+            }
+
+            rows.forEach(row => tbody.appendChild(row));
+
+            rows.forEach(row => {
+                const isChronic = row.getAttribute('data-chronic') === 'true';
+                const rowGrade = row.getAttribute('data-grade').toLowerCase();
+                const rowText = row.innerText.toLowerCase();
+
+                let matchesFilter = true;
+                if (currentFilter === 'chronic') {
+                    matchesFilter = isChronic;
+                }
+
+                const matchesGrade = (gradeFilter === 'all') || (rowGrade === gradeFilter);
+                const matchesSearch = rowText.includes(searchQuery);
+
+                if (matchesFilter && matchesGrade && matchesSearch) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            applyFilter('chronic', null);
+        });
+    </script>
 </body>
 </html>
 """
 
-# --- App Initialization & Default Seeding ---
+# --- App Initialization ---
 
 def init_db():
     with app.app_context():
@@ -395,20 +431,13 @@ def init_db():
 
         db.create_all()
 
-        # Seed initial default schools
-        lhs = School.query.filter_by(code='LHS').first()
-        if not lhs:
-            lhs = School(name='Lincoln High School', code='LHS')
-            db.session.add(lhs)
-
-        mms = School.query.filter_by(code='MMS').first()
+        mms = School.query.filter_by(code='HMS').first()
         if not mms:
             mms = School(name='Highland Middle School', code='HMS')
             db.session.add(mms)
 
         db.session.commit()
 
-        # Seed default admin user
         if not User.query.filter_by(username='admin').first():
             admin = User(
                 username='admin', 
@@ -416,16 +445,6 @@ def init_db():
                 role='Admin'
             )
             db.session.add(admin)
-
-        # Seed sample staff user
-        if not User.query.filter_by(username='highland_staff').first():
-            staff = User(
-                username='highland_staff',
-                password_hash=generate_password_hash('staff123'),
-                role='Staff',
-                school_id=mms.id
-            )
-            db.session.add(staff)
 
         db.session.commit()
 
@@ -453,12 +472,12 @@ def index():
         records = StudentRecord.query.filter_by(school_id=user.school_id).all()
 
     schools = School.query.all()
-    users = User.query.all()
 
     students_data = []
     total_students = len(records)
     at_risk_count = 0
     total_rate_sum = 0
+    grades_set = set()
 
     for r in records:
         tardy_absences = r.tardies // TARDY_CONVERSION_FACTOR
@@ -469,15 +488,27 @@ def index():
             at_risk_count += 1
 
         total_rate_sum += rate
+        if r.grade and r.grade != 'N/A':
+            grades_set.add(r.grade)
+
+        interventions_logged = [{
+            'action_type': item.action_type,
+            'notes': item.notes,
+            'logged_by': item.logged_by,
+            'timestamp': item.timestamp.strftime('%b %d, %Y %H:%M')
+        } for item in r.interventions]
 
         students_data.append({
+            'id': r.id,
             'student_id': r.student_id,
             'name': r.name,
+            'grade': r.grade or 'N/A',
             'school_name': r.school.name if r.school else 'Unassigned',
             'absences': r.absences,
             'tardies': r.tardies,
             'adjusted_absences': adjusted_absences,
-            'rate': rate
+            'rate': rate,
+            'interventions': interventions_logged
         })
 
     avg_rate = (total_rate_sum / total_students) if total_students > 0 else 0.0
@@ -487,10 +518,10 @@ def index():
         current_user=user,
         students=students_data,
         schools=schools,
-        users=users,
         total_students=total_students,
         at_risk_count=at_risk_count,
-        avg_rate=avg_rate
+        avg_rate=avg_rate,
+        available_grades=sorted(list(grades_set))
     )
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -511,89 +542,28 @@ def login():
 @app.route('/logout')
 def logout():
     session.pop('user_id', None)
-    return redirect(url_for('login'))
-
-@app.route('/add_school', methods=['POST'])
-def add_school():
-    user = get_current_user()
-    if not user or user.role != 'Admin':
-        flash('Unauthorized action.', 'error')
-        return redirect(url_for('index'))
-
-    name = request.form.get('name')
-    code = request.form.get('code')
-
-    if name and code:
-        school = School(name=name.strip(), code=code.strip())
-        db.session.add(school)
-        db.session.commit()
-        flash('School added successfully!', 'success')
-
     return redirect(url_for('index'))
 
-@app.route('/delete_school/<int:school_id>', methods=['POST'])
-def delete_school(school_id):
+@app.route('/log_intervention', methods=['POST'])
+def log_intervention():
     user = get_current_user()
-    if not user or user.role != 'Admin':
-        flash('Unauthorized action.', 'error')
-        return redirect(url_for('index'))
+    if not user:
+        return redirect(url_for('login'))
 
-    school = School.query.get(school_id)
-    if school:
-        db.session.delete(school)
+    student_db_id = request.form.get('student_db_id')
+    action_type = request.form.get('action_type')
+    notes = request.form.get('notes')
+
+    if student_db_id and action_type:
+        intervention = Intervention(
+            student_record_id=int(student_db_id),
+            action_type=action_type,
+            notes=notes.strip() if notes else '',
+            logged_by=user.username
+        )
+        db.session.add(intervention)
         db.session.commit()
-        flash(f'School "{school.name}" and associated records deleted.', 'success')
-    else:
-        flash('School not found.', 'error')
-
-    return redirect(url_for('index'))
-
-@app.route('/add_user', methods=['POST'])
-def add_user():
-    user = get_current_user()
-    if not user or user.role != 'Admin':
-        flash('Unauthorized action.', 'error')
-        return redirect(url_for('index'))
-
-    username = request.form.get('username')
-    password = request.form.get('password')
-    role = request.form.get('role', 'Staff')
-    school_id = request.form.get('school_id')
-
-    if username and password:
-        if User.query.filter_by(username=username).first():
-            flash('Username already exists.', 'error')
-        else:
-            new_user = User(
-                username=username.strip(),
-                password_hash=generate_password_hash(password),
-                role=role,
-                school_id=int(school_id) if school_id else None
-            )
-            db.session.add(new_user)
-            db.session.commit()
-            flash('User account created successfully!', 'success')
-
-    return redirect(url_for('index'))
-
-@app.route('/delete_user/<int:user_id>', methods=['POST'])
-def delete_user(user_id):
-    current_user = get_current_user()
-    if not current_user or current_user.role != 'Admin':
-        flash('Unauthorized action.', 'error')
-        return redirect(url_for('index'))
-
-    if current_user.id == user_id:
-        flash('You cannot delete your own account while logged in.', 'error')
-        return redirect(url_for('index'))
-
-    target_user = User.query.get(user_id)
-    if target_user:
-        db.session.delete(target_user)
-        db.session.commit()
-        flash(f'User "{target_user.username}" deleted successfully.', 'success')
-    else:
-        flash('User not found.', 'error')
+        flash('Intervention logged successfully!', 'success')
 
     return redirect(url_for('index'))
 
@@ -605,19 +575,17 @@ def add_student():
 
     student_id = request.form.get('student_id')
     name = request.form.get('name')
-    absences = int(request.form.get('absences', 0))
+    grade = request.form.get('grade', 'N/A')
+    absences = float(request.form.get('absences', 0.0))
     tardies = int(request.form.get('tardies', 0))
 
-    if user.role == 'Admin':
-        school_id = request.form.get('school_id')
-        school_id = int(school_id) if school_id else None
-    else:
-        school_id = user.school_id
+    school_id = user.school_id if user.role != 'Admin' else request.form.get('school_id')
 
     if student_id and name:
         student = StudentRecord(
             student_id=student_id.strip(),
             name=name.strip(),
+            grade=grade.strip() if grade else 'N/A',
             school_id=school_id,
             absences=absences,
             tardies=tardies
@@ -643,11 +611,7 @@ def upload_csv():
         flash('No file selected.', 'error')
         return redirect(url_for('index'))
 
-    if user.role == 'Admin':
-        school_id_param = request.form.get('school_id')
-        school_id = int(school_id_param) if school_id_param else None
-    else:
-        school_id = user.school_id
+    school_id = user.school_id if user.role != 'Admin' else request.form.get('school_id')
 
     try:
         content = file.stream.read().decode('utf-8-sig')
@@ -656,8 +620,6 @@ def upload_csv():
 
         if school_id:
             StudentRecord.query.filter_by(school_id=school_id).delete()
-        elif user.role == 'Admin':
-            StudentRecord.query.filter_by(school_id=None).delete()
 
         imported_count = 0
         for row in csv_input:
@@ -675,44 +637,23 @@ def upload_csv():
                 except ValueError:
                     return default
 
-            # Column lookups including Infinite Campus / District BI exports
-            student_id = (
-                clean_row.get('studentnumber') or 
-                clean_row.get('student_id') or 
-                clean_row.get('student id') or 
-                clean_row.get('id') or 
-                clean_row.get('student_number') or ''
-            )
-            
-            name = (
-                clean_row.get('studentname') or 
-                clean_row.get('student_name') or 
-                clean_row.get('student name') or 
-                clean_row.get('name') or ''
-            )
+            student_id = clean_row.get('studentnumber') or clean_row.get('student_id') or ''
+            name = clean_row.get('studentname') or clean_row.get('student_name') or ''
+            grade = clean_row.get('grade') or clean_row.get('grade_level') or 'N/A'
 
-            # Absence mapping (handles decimals like 1.5 days)
-            absences_raw = (
-                clean_row.get('currentschoolabsences7') or 
-                clean_row.get('totalabsenceindistrict_hdwd10') or 
-                clean_row.get('absences') or '0'
-            )
-            absences = parse_int(parse_float(absences_raw))
+            absences_raw = clean_row.get('currentschoolabsences7') or clean_row.get('absences') or '0'
+            absences = parse_float(absences_raw)
 
-            # Tardies & Membership days
-            tardies = parse_int(clean_row.get('tardies') or clean_row.get('unexcusedabsences') or '0')
+            tardies = parse_int(clean_row.get('tardies') or '0')
             
-            total_days_raw = (
-                clean_row.get('currentschoolmembershipdays11') or 
-                clean_row.get('totalmembershipdaysindistrict10') or 
-                clean_row.get('total_days') or '180'
-            )
+            total_days_raw = clean_row.get('currentschoolmembershipdays11') or clean_row.get('total_days') or '180'
             total_days = parse_int(parse_float(total_days_raw), default=180)
 
             if student_id or name:
                 student = StudentRecord(
                     student_id=student_id if student_id else "N/A",
                     name=name if name else "Unknown Student",
+                    grade=str(grade),
                     school_id=school_id,
                     absences=absences,
                     tardies=tardies,
