@@ -158,7 +158,6 @@ INDEX_HTML = """
         
         <div class="user-info">
             {% if current_user.role == 'Admin' %}
-            <!-- ADMIN SCHOOL SELECTOR DROPDOWN -->
             <form method="GET" action="/" style="margin:0; display:flex; align-items:center; gap:0.5rem;">
                 <label style="font-size:0.85rem; font-weight:600; color:var(--muted);">Active School:</label>
                 <select name="school_id" onchange="this.form.submit()" style="font-weight:600; background:#f1f5f9; border-color:#cbd5e1;">
@@ -188,14 +187,12 @@ INDEX_HTML = """
           {% endif %}
         {% endwith %}
 
-        <!-- Active View Notification Banner -->
         <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:0.85rem 1.25rem; margin-bottom:1.5rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
             <div style="font-size:0.9rem; color:#1e40af;">
                 Showing Data For: <strong>{{ active_school_name }}</strong>
             </div>
             
             {% if current_user.role == 'Admin' and selected_school_id != 'all' %}
-            <!-- Clear Data Button for Specific Selected School -->
             <form method="POST" action="/clear_school_data" onsubmit="return confirm('Are you sure you want to delete ALL student records for {{ active_school_name }}? This action cannot be undone.');" style="margin:0;">
                 <input type="hidden" name="school_id" value="{{ selected_school_id }}">
                 <button type="submit" class="btn btn-danger btn-sm">🗑️ Clear Data For {{ active_school_name }}</button>
@@ -203,7 +200,6 @@ INDEX_HTML = """
             {% endif %}
         </div>
 
-        <!-- Metrics Overview -->
         <div class="metrics-grid">
             <div class="metric-card">
                 <div class="metric-title">Total Students</div>
@@ -220,9 +216,7 @@ INDEX_HTML = """
         </div>
 
         {% if current_user.role == 'Admin' %}
-        <!-- ADMIN MANAGEMENT SECTION -->
         <div class="grid-2">
-            <!-- Add School -->
             <div class="card">
                 <h3 class="card-title" style="margin-bottom:1rem;">🏫 Add New School</h3>
                 <form method="POST" action="/add_school" style="display:flex; flex-direction:column; gap:0.75rem;">
@@ -234,7 +228,6 @@ INDEX_HTML = """
                 </form>
             </div>
 
-            <!-- Add User -->
             <div class="card">
                 <h3 class="card-title" style="margin-bottom:1rem;">👤 Add User / Staff Account</h3>
                 <form method="POST" action="/add_user" style="display:flex; flex-direction:column; gap:0.75rem;">
@@ -260,7 +253,6 @@ INDEX_HTML = """
         </div>
         {% endif %}
 
-        <!-- Add Student & Import CSV -->
         <div class="grid-2">
             <div class="card">
                 <h3 class="card-title" style="margin-bottom:1rem;">Add Single Student</h3>
@@ -310,19 +302,16 @@ INDEX_HTML = """
             </div>
         </div>
 
-        <!-- Attendance Roster Table -->
         <div class="card">
             <div class="card-header">
                 <h3 class="card-title">Attendance Roster View</h3>
                 <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
-                    <!-- Specific Filters -->
                     <div class="filter-btn-group">
                         <button class="filter-btn active" onclick="applyFilter('chronic', this)">Chronic Students (&lt;90%)</button>
                         <button class="filter-btn" onclick="applyFilter('most-absences', this)">Most Absences</button>
                         <button class="filter-btn" onclick="applyFilter('least-absences', this)">Least Absences</button>
                     </div>
 
-                    <!-- Grade Level Selector -->
                     <select id="gradeSelect" onchange="applyFilter(currentFilter, null)" style="padding:0.5rem; font-size:0.85rem; font-weight:600; color:var(--muted); border-radius:6px; border:1px solid var(--border);">
                         <option value="all">All Grade Levels</option>
                         {% for g in available_grades %}
@@ -330,7 +319,6 @@ INDEX_HTML = """
                         {% endfor %}
                     </select>
 
-                    <!-- Search Input -->
                     <input type="text" id="rosterSearch" onkeyup="applyFilter(currentFilter, null)" placeholder="Search name or ID..." style="width:200px;">
                 </div>
             </div>
@@ -402,7 +390,6 @@ INDEX_HTML = """
         </div>
     </div>
 
-    <!-- Intervention Modal Structure -->
     <div id="interventionModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -505,22 +492,16 @@ INDEX_HTML = """
 
 def init_db():
     with app.app_context():
-        try:
-            db.session.execute(db.text('DROP SCHEMA public CASCADE;'))
-            db.session.execute(db.text('CREATE SCHEMA public;'))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-
+        # Creates tables if they don't exist (SAFE: will NOT drop existing data)
         db.create_all()
 
+        # Seed default Highland Middle School if database is empty
         mms = School.query.filter_by(code='HMS').first()
         if not mms:
             mms = School(name='Highland Middle School', code='HMS')
             db.session.add(mms)
 
-        db.session.commit()
-
+        # Seed default Admin account if missing
         if not User.query.filter_by(username='admin').first():
             admin = User(
                 username='admin', 
@@ -552,7 +533,6 @@ def index():
     schools = School.query.all()
     selected_school_id = request.args.get('school_id', 'all')
 
-    # Filter logic based on Role and Dropdown selection
     if user.role == 'Admin':
         if selected_school_id != 'all':
             try:
@@ -823,7 +803,7 @@ def upload_csv():
         if fte_col_idx is None and len(headers) > 21:
             fte_col_idx = 21
 
-        # Clean existing records ONLY for the target school to avoid merging
+        # Replace existing records ONLY for target school
         StudentRecord.query.filter_by(school_id=s_id).delete()
 
         imported_count = 0
