@@ -41,6 +41,7 @@ class StudentRecord(db.Model):
     absences = db.Column(db.Float, default=0.0)
     tardies = db.Column(db.Integer, default=0)
     total_days = db.Column(db.Integer, default=180)
+    present_fte = db.Column(db.Float, nullable=True)  # Populated from PresentFTE / Column V (< 0.90 threshold)
 
     school = db.relationship('School', backref=db.backref('students', lazy=True, cascade="all, delete-orphan"))
     interventions = db.relationship('Intervention', backref='student', lazy=True, cascade="all, delete-orphan")
@@ -179,12 +180,12 @@ INDEX_HTML = """
                 <div class="metric-value">{{ total_students }}</div>
             </div>
             <div class="metric-card">
-                <div class="metric-title">Chronic Students (&ge;10%)</div>
+                <div class="metric-title">Chronically Absent (PresentFTE &lt; 90%)</div>
                 <div class="metric-value" style="color: #dc2626;">{{ at_risk_count }}</div>
             </div>
             <div class="metric-card">
-                <div class="metric-title">Average Absenteeism Rate</div>
-                <div class="metric-value">{{ "%.1f"|format(avg_rate) }}%</div>
+                <div class="metric-title">Chronic Absenteeism Rate</div>
+                <div class="metric-value" style="color: #dc2626;">{{ "%.1f"|format(chronic_rate) }}%</div>
             </div>
         </div>
 
@@ -264,7 +265,7 @@ INDEX_HTML = """
                         <input type="file" name="file" accept=".csv" required style="flex:1;">
                         <button type="submit" class="btn">Import CSV</button>
                     </div>
-                    <small style="color:var(--muted);">Supports standard CSV files & District BI Attendance reports.</small>
+                    <small style="color:var(--muted);">Reads Column V (PresentFTE &lt; 90%) for precise daily chronic absenteeism calculation.</small>
                 </form>
             </div>
         </div>
@@ -276,7 +277,7 @@ INDEX_HTML = """
                 <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
                     <!-- Specific Filters -->
                     <div class="filter-btn-group">
-                        <button class="filter-btn active" onclick="applyFilter('chronic', this)">Chronic Students</button>
+                        <button class="filter-btn active" onclick="applyFilter('chronic', this)">Chronic Students (&lt;90%)</button>
                         <button class="filter-btn" onclick="applyFilter('most-absences', this)">Most Absences</button>
                         <button class="filter-btn" onclick="applyFilter('least-absences', this)">Least Absences</button>
                     </div>
@@ -302,7 +303,7 @@ INDEX_HTML = """
                         <th>Grade</th>
                         <th>School</th>
                         <th>Absences</th>
-                        <th>Absenteeism %</th>
+                        <th>PresentFTE (Col V)</th>
                         <th>Status</th>
                         <th>Interventions Logged</th>
                         <th style="text-align:right;">Action</th>
@@ -311,7 +312,7 @@ INDEX_HTML = """
                 <tbody id="rosterTableBody">
                     {% for student in students %}
                     <tr class="roster-row" 
-                        data-chronic="{{ 'true' if student.rate >= 10.0 else 'false' }}"
+                        data-chronic="{{ 'true' if student.is_chronic else 'false' }}"
                         data-absences="{{ student.adjusted_absences }}"
                         data-grade="{{ student.grade }}">
                         <td><strong>{{ student.student_id }}</strong></td>
@@ -319,10 +320,10 @@ INDEX_HTML = """
                         <td><span class="badge" style="background:#e2e8f0; color:#334155;">{{ student.grade }}</span></td>
                         <td>{{ student.school_name }}</td>
                         <td><strong>{{ student.adjusted_absences }}</strong></td>
-                        <td>{{ "%.1f"|format(student.rate) }}%</td>
+                        <td><strong>{{ "%.1f"|format(student.present_fte_pct) }}%</strong></td>
                         <td>
-                            {% if student.rate >= 10.0 %}
-                                <span class="badge badge-danger">Chronic (&ge;10%)</span>
+                            {% if student.is_chronic %}
+                                <span class="badge badge-danger">Chronic (&lt;90%)</span>
                             {% else %}
                                 <span class="badge badge-success">On Track</span>
                             {% endif %}
@@ -519,18 +520,28 @@ def index():
     students_data = []
     total_students = len(records)
     at_risk_count = 0
-    total_rate_sum = 0
     grades_set = set()
 
     for r in records:
         tardy_absences = r.tardies // TARDY_CONVERSION_FACTOR
         adjusted_absences = r.absences + tardy_absences
-        rate = (adjusted_absences / r.total_days * 100) if r.total_days > 0 else 0
 
-        if rate >= 10.0:
+        # PresentFTE handling (supports both ratio <= 1.0 e.g. 0.88 and percentage e.g. 88.0)
+        if r.present_fte is not None:
+            val = r.present_fte
+            fte_ratio = val / 100.0 if val > 1.0 else val
+            present_fte_pct = fte_ratio * 100.0
+        else:
+            calc_abs_rate = (adjusted_absences / r.total_days) if r.total_days > 0 else 0
+            fte_ratio = max(0.0, 1.0 - calc_abs_rate)
+            present_fte_pct = fte_ratio * 100.0
+
+        # Chronically absent if PresentFTE < 90% (ratio < 0.90)
+        is_chronic = fte_ratio < 0.90
+
+        if is_chronic:
             at_risk_count += 1
 
-        total_rate_sum += rate
         if r.grade and r.grade != 'N/A':
             grades_set.add(r.grade)
 
@@ -550,11 +561,13 @@ def index():
             'absences': r.absences,
             'tardies': r.tardies,
             'adjusted_absences': adjusted_absences,
-            'rate': rate,
+            'present_fte_pct': present_fte_pct,
+            'is_chronic': is_chronic,
             'interventions': interventions_logged
         })
 
-    avg_rate = (total_rate_sum / total_students) if total_students > 0 else 0.0
+    # Chronic Absenteeism Rate = (Chronic Students < 0.90 PresentFTE / Total Students) * 100
+    chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
 
     return render_template_string(
         INDEX_HTML,
@@ -563,7 +576,7 @@ def index():
         schools=schools,
         total_students=total_students,
         at_risk_count=at_risk_count,
-        avg_rate=avg_rate,
+        chronic_rate=chronic_rate,
         available_grades=sorted(list(grades_set))
     )
 
@@ -710,38 +723,64 @@ def upload_csv():
     try:
         content = file.stream.read().decode('utf-8-sig')
         stream = io.StringIO(content, newline=None)
-        csv_input = csv.DictReader(stream)
+
+        raw_csv = csv.reader(stream)
+        rows_list = list(raw_csv)
+        if not rows_list:
+            flash('CSV file is empty.', 'error')
+            return redirect(url_for('index'))
+
+        headers = [h.strip() for h in rows_list[0]]
+        headers_lower = [h.lower() for h in headers]
+
+        # Locate PresentFTE column by header or position (Column V = Index 21)
+        fte_col_idx = None
+        for key in ['presentfte', 'present_fte', 'presentft', 'present fte', 'att_rate']:
+            if key in headers_lower:
+                fte_col_idx = headers_lower.index(key)
+                break
+        
+        if fte_col_idx is None and len(headers) > 21:
+            fte_col_idx = 21
 
         if school_id:
             StudentRecord.query.filter_by(school_id=school_id).delete()
 
         imported_count = 0
-        for row in csv_input:
-            clean_row = {str(k).strip().lower(): str(v).strip() for k, v in row.items() if k}
+        for raw_row in rows_list[1:]:
+            if not raw_row or not any(raw_row):
+                continue
+
+            row_dict = {headers[i].lower(): raw_row[i].strip() for i in range(min(len(headers), len(raw_row)))}
 
             def parse_float(val, default=0.0):
+                if not val: return default
+                cleaned = str(val).replace('%', '').strip()
                 try:
-                    return float(val) if val else default
+                    return float(cleaned)
                 except ValueError:
                     return default
 
             def parse_int(val, default=0):
+                if not val: return default
                 try:
-                    return int(float(val)) if val else default
+                    return int(float(str(val).replace('%', '').strip()))
                 except ValueError:
                     return default
 
-            student_id = clean_row.get('studentnumber') or clean_row.get('student_id') or ''
-            name = clean_row.get('studentname') or clean_row.get('student_name') or ''
-            grade = clean_row.get('grade') or clean_row.get('grade_level') or 'N/A'
+            student_id = row_dict.get('studentnumber') or row_dict.get('student_id') or (raw_row[0] if len(raw_row) > 0 else '')
+            name = row_dict.get('studentname') or row_dict.get('student_name') or (raw_row[1] if len(raw_row) > 1 else '')
+            grade = row_dict.get('grade') or row_dict.get('grade_level') or 'N/A'
 
-            absences_raw = clean_row.get('currentschoolabsences7') or clean_row.get('absences') or '0'
+            absences_raw = row_dict.get('currentschoolabsences7') or row_dict.get('absences') or '0'
             absences = parse_float(absences_raw)
 
-            tardies = parse_int(clean_row.get('tardies') or '0')
-            
-            total_days_raw = clean_row.get('currentschoolmembershipdays11') or clean_row.get('total_days') or '180'
-            total_days = parse_int(parse_float(total_days_raw), default=180)
+            tardies = parse_int(row_dict.get('tardies') or '0')
+
+            # Parse PresentFTE value directly
+            present_fte_val = None
+            if fte_col_idx is not None and len(raw_row) > fte_col_idx:
+                present_fte_val = parse_float(raw_row[fte_col_idx], default=None)
 
             if student_id or name:
                 student = StudentRecord(
@@ -751,14 +790,14 @@ def upload_csv():
                     school_id=school_id,
                     absences=absences,
                     tardies=tardies,
-                    total_days=total_days if total_days > 0 else 180
+                    present_fte=present_fte_val
                 )
                 db.session.add(student)
                 imported_count += 1
 
         db.session.commit()
         if imported_count > 0:
-            flash(f'Success! Imported {imported_count} student record(s).', 'success')
+            flash(f'Success! Imported {imported_count} student record(s) with PresentFTE metric.', 'success')
         else:
             flash('CSV uploaded, but 0 valid student rows were found.', 'error')
 
