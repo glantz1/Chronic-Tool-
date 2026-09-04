@@ -168,7 +168,11 @@ class StudentRecord(db.Model):
 
 def init_db():
     with app.app_context():
+        # Drop old/mismatched tables and recreate clean schema
+        db.drop_all()
         db.create_all()
+        
+        # Seed default admin user
         if not User.query.filter_by(username='admin').first():
             hashed = generate_password_hash('admin123')
             admin = User(username='admin', password_hash=hashed)
