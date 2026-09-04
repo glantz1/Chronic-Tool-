@@ -48,7 +48,7 @@ class StudentRecord(db.Model):
 class Intervention(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_record_id = db.Column(db.Integer, db.ForeignKey('student_record.id', ondelete='CASCADE'), nullable=False)
-    action_type = db.Column(db.String(100), nullable=False)  # e.g., Phone Call, Meeting, Contract
+    action_type = db.Column(db.String(100), nullable=False)
     notes = db.Column(db.Text, nullable=True)
     logged_by = db.Column(db.String(80), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
@@ -120,7 +120,7 @@ INDEX_HTML = """
         .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; margin-bottom: 2rem; }
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; }
         .card-title { font-size: 1.1rem; font-weight: 600; margin: 0; }
-        .form-row { display: flex; gap: 0.75rem; align-items: center; }
+        .form-row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
         input, select, textarea { padding: 0.6rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.875rem; font-family: inherit; }
         .btn { background: var(--primary); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; font-weight: 600; cursor: pointer; text-decoration: none; font-size: 0.875rem; }
         .btn:hover { background: var(--primary-hover); }
@@ -144,7 +144,7 @@ INDEX_HTML = """
         .alert-success { background: var(--success-bg); color: var(--success-text); border: 1px solid #bbf7d0; }
         .alert-error { background: var(--danger-bg); color: var(--danger-text); border: 1px solid #fecaca; }
 
-        /* Intervention Modal */
+        /* Modal styling */
         .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(2px); justify-content: center; align-items: center; }
         .modal-content { background: var(--card); width: 100%; max-width: 520px; border-radius: 12px; padding: 1.75rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); border: 1px solid var(--border); }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
@@ -188,6 +188,47 @@ INDEX_HTML = """
             </div>
         </div>
 
+        {% if current_user.role == 'Admin' %}
+        <!-- ADMIN MANAGEMENT SECTION -->
+        <div class="grid-2">
+            <!-- Add School -->
+            <div class="card">
+                <h3 class="card-title" style="margin-bottom:1rem;">🏫 Add New School</h3>
+                <form method="POST" action="/add_school" style="display:flex; flex-direction:column; gap:0.75rem;">
+                    <div class="form-row">
+                        <input type="text" name="name" placeholder="School Name" required style="flex:2;">
+                        <input type="text" name="code" placeholder="Code (e.g. HMS)" required style="flex:1;">
+                        <button type="submit" class="btn">Add School</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Add User -->
+            <div class="card">
+                <h3 class="card-title" style="margin-bottom:1rem;">👤 Add User / Staff Account</h3>
+                <form method="POST" action="/add_user" style="display:flex; flex-direction:column; gap:0.75rem;">
+                    <div class="form-row">
+                        <input type="text" name="username" placeholder="Username" required style="flex:1;">
+                        <input type="password" name="password" placeholder="Password" required style="flex:1;">
+                    </div>
+                    <div class="form-row">
+                        <select name="role" required style="flex:1;">
+                            <option value="Staff">Role: Staff</option>
+                            <option value="Admin">Role: Admin</option>
+                        </select>
+                        <select name="school_id" style="flex:1;">
+                            <option value="">Assigned School (Optional)</option>
+                            {% for school in schools %}
+                            <option value="{{ school.id }}">{{ school.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn">Create User</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Add Student & Import CSV -->
         <div class="grid-2">
             <div class="card">
@@ -198,7 +239,7 @@ INDEX_HTML = """
                         <input type="text" name="name" placeholder="Student Name" required style="flex:2;">
                     </div>
                     <div class="form-row">
-                        <input type="text" name="grade" placeholder="Grade Level (e.g., 6, 7, 8)" style="flex:1;">
+                        <input type="text" name="grade" placeholder="Grade Level (e.g. 6, 7, 8)" style="flex:1;">
                         <input type="number" step="0.5" name="absences" placeholder="Absences" value="0" style="width:100px;">
                         <input type="number" name="tardies" placeholder="Tardies" value="0" style="width:90px;">
                         <button type="submit" class="btn">Add Student</button>
@@ -228,19 +269,19 @@ INDEX_HTML = """
             </div>
         </div>
 
-        <!-- Roster Table with Explicit Filter Buttons -->
+        <!-- Attendance Roster Table -->
         <div class="card">
             <div class="card-header">
                 <h3 class="card-title">Attendance Roster View</h3>
                 <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
-                    <!-- Filter Buttons -->
+                    <!-- Specific Filters -->
                     <div class="filter-btn-group">
                         <button class="filter-btn active" onclick="applyFilter('chronic', this)">Chronic Students</button>
                         <button class="filter-btn" onclick="applyFilter('most-absences', this)">Most Absences</button>
                         <button class="filter-btn" onclick="applyFilter('least-absences', this)">Least Absences</button>
                     </div>
 
-                    <!-- Grade Level Selector Filter -->
+                    <!-- Grade Level Selector -->
                     <select id="gradeSelect" onchange="applyFilter(currentFilter, null)" style="padding:0.5rem; font-size:0.85rem; font-weight:600; color:var(--muted); border-radius:6px; border:1px solid var(--border);">
                         <option value="all">All Grade Levels</option>
                         {% for g in available_grades %}
@@ -259,6 +300,7 @@ INDEX_HTML = """
                         <th>Student ID</th>
                         <th>Name</th>
                         <th>Grade</th>
+                        <th>School</th>
                         <th>Absences</th>
                         <th>Absenteeism %</th>
                         <th>Status</th>
@@ -275,6 +317,7 @@ INDEX_HTML = """
                         <td><strong>{{ student.student_id }}</strong></td>
                         <td class="student-name">{{ student.name }}</td>
                         <td><span class="badge" style="background:#e2e8f0; color:#334155;">{{ student.grade }}</span></td>
+                        <td>{{ student.school_name }}</td>
                         <td><strong>{{ student.adjusted_absences }}</strong></td>
                         <td>{{ "%.1f"|format(student.rate) }}%</td>
                         <td>
@@ -308,7 +351,7 @@ INDEX_HTML = """
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="8" style="text-align: center; color: var(--muted); padding: 2rem;">
+                        <td colspan="9" style="text-align: center; color: var(--muted); padding: 2rem;">
                             No student record data available for this scope.
                         </td>
                     </tr>
@@ -354,7 +397,7 @@ INDEX_HTML = """
         </div>
     </div>
 
-    <!-- Client-side Script -->
+    <!-- Client-side Custom Filter Logic -->
     <script>
         let currentFilter = 'chronic';
 
@@ -418,7 +461,7 @@ INDEX_HTML = """
 </html>
 """
 
-# --- App Initialization ---
+# --- App Initialization & Default Seeding ---
 
 def init_db():
     with app.app_context():
@@ -542,6 +585,57 @@ def login():
 @app.route('/logout')
 def logout():
     session.pop('user_id', None)
+    return redirect(url_for('login'))
+
+@app.route('/add_school', methods=['POST'])
+def add_school():
+    user = get_current_user()
+    if not user or user.role != 'Admin':
+        flash('Unauthorized action.', 'error')
+        return redirect(url_for('index'))
+
+    name = request.form.get('name')
+    code = request.form.get('code')
+
+    if name and code:
+        try:
+            school = School(name=name.strip(), code=code.strip().upper())
+            db.session.add(school)
+            db.session.commit()
+            flash(f'School "{name}" added successfully!', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error adding school: {str(e)}', 'error')
+
+    return redirect(url_for('index'))
+
+@app.route('/add_user', methods=['POST'])
+def add_user():
+    user = get_current_user()
+    if not user or user.role != 'Admin':
+        flash('Unauthorized action.', 'error')
+        return redirect(url_for('index'))
+
+    username = request.form.get('username')
+    password = request.form.get('password')
+    role = request.form.get('role', 'Staff')
+    school_id = request.form.get('school_id')
+
+    if username and password:
+        try:
+            new_user = User(
+                username=username.strip(),
+                password_hash=generate_password_hash(password),
+                role=role,
+                school_id=int(school_id) if school_id else None
+            )
+            db.session.add(new_user)
+            db.session.commit()
+            flash(f'User "{username}" created successfully!', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error adding user: {str(e)}', 'error')
+
     return redirect(url_for('index'))
 
 @app.route('/log_intervention', methods=['POST'])
