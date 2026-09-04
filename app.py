@@ -27,20 +27,20 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), default='Staff')  # 'Admin' or 'Staff'
-    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)
+    school_id = db.Column(db.Integer, db.ForeignKey('school.id', ondelete='SET NULL'), nullable=True)
 
-    school = db.relationship('School', backref=db.backref('users', lazy=True))
+    school = db.relationship('School', backref=db.backref('users', lazy=True, cascade="all, delete-orphan"))
 
 class StudentRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(100), nullable=False)
-    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)
+    school_id = db.Column(db.Integer, db.ForeignKey('school.id', ondelete='CASCADE'), nullable=True)
     absences = db.Column(db.Integer, default=0)
     tardies = db.Column(db.Integer, default=0)
     total_days = db.Column(db.Integer, default=180)
 
-    school = db.relationship('School', backref=db.backref('students', lazy=True))
+    school = db.relationship('School', backref=db.backref('students', lazy=True, cascade="all, delete-orphan"))
 
 # --- HTML Templates ---
 
@@ -115,13 +115,17 @@ INDEX_HTML = """
         .btn:hover { background: var(--primary-hover); }
         .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
         .btn-outline:hover { background: var(--bg); }
+        .btn-danger { background: #dc2626; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.8rem; text-decoration: none; }
+        .btn-danger:hover { background: #b91c1c; }
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem; }
         th, td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
         th { background: #f8fafc; color: var(--muted); }
         .badge { padding: 0.25rem 0.625rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
         .badge-danger { background: var(--danger-bg); color: var(--danger-text); }
         .badge-success { background: var(--success-bg); color: var(--success-text); }
-        .alert { background: var(--success-bg); color: var(--success-text); border: 1px solid #bbf7d0; padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.875rem; }
+        .alert { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.875rem; }
+        .alert-success { background: var(--success-bg); color: var(--success-text); border: 1px solid #bbf7d0; }
+        .alert-error { background: var(--danger-bg); color: var(--danger-text); border: 1px solid #fecaca; }
     </style>
 </head>
 <body>
@@ -140,7 +144,7 @@ INDEX_HTML = """
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
             {% for category, message in messages %}
-              <div class="alert">{{ message }}</div>
+              <div class="alert alert-{{ category }}">{{ message }}</div>
             {% endfor %}
           {% endif %}
         {% endwith %}
@@ -173,11 +177,39 @@ INDEX_HTML = """
             <!-- Add School -->
             <div class="card">
                 <h3 class="card-title" style="margin-bottom:1rem;">Manage Schools</h3>
-                <form method="POST" action="/add_school" class="form-row">
+                <form method="POST" action="/add_school" class="form-row" style="margin-bottom:1.5rem;">
                     <input type="text" name="name" placeholder="School Name" required style="flex:2;">
                     <input type="text" name="code" placeholder="Code (e.g. LHS)" required style="flex:1;">
                     <button type="submit" class="btn">Add School</button>
                 </form>
+
+                <h4 style="font-size:0.9rem; color:var(--muted); margin-bottom:0.5rem;">Active Schools</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Code</th>
+                            <th style="text-align:right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for school in schools %}
+                        <tr>
+                            <td><strong>{{ school.name }}</strong></td>
+                            <td><code>{{ school.code }}</code></td>
+                            <td style="text-align:right;">
+                                <form method="POST" action="/delete_school/{{ school.id }}" style="display:inline;" onsubmit="return confirm('Are you sure? Deleting a school deletes all attached students!');">
+                                    <button type="submit" class="btn-danger">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="3" style="color:var(--muted); text-align:center;">No schools added yet.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
 
             <!-- Manage Users -->
@@ -266,6 +298,7 @@ INDEX_HTML = """
                         <th>Username</th>
                         <th>Role</th>
                         <th>Assigned School Scope</th>
+                        <th style="text-align:right;">Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -275,6 +308,15 @@ INDEX_HTML = """
                         <td><strong>{{ u.username }}</strong></td>
                         <td><span class="badge badge-success">{{ u.role }}</span></td>
                         <td>{{ u.school.name if u.school else 'Global Scope (All Schools)' }}</td>
+                        <td style="text-align:right;">
+                            {% if u.id != current_user.id %}
+                            <form method="POST" action="/delete_user/{{ u.id }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this user?');">
+                                <button type="submit" class="btn-danger">Delete User</button>
+                            </form>
+                            {% else %}
+                            <span style="color:var(--muted); font-size:0.8rem;">Current Session</span>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -337,7 +379,6 @@ INDEX_HTML = """
 
 def init_db():
     with app.app_context():
-        # Reset schema cleanly
         try:
             db.session.execute(db.text('DROP SCHEMA public CASCADE;'))
             db.session.execute(db.text('CREATE SCHEMA public;'))
@@ -399,7 +440,6 @@ def index():
     if not user:
         return redirect(url_for('login'))
 
-    # Scope query by school if the user is a Staff member
     if user.role == 'Admin':
         records = StudentRecord.query.all()
     else:
@@ -484,6 +524,23 @@ def add_school():
 
     return redirect(url_for('index'))
 
+@app.route('/delete_school/<int:school_id>', methods=['POST'])
+def delete_school(school_id):
+    user = get_current_user()
+    if not user or user.role != 'Admin':
+        flash('Unauthorized action.', 'error')
+        return redirect(url_for('index'))
+
+    school = School.query.get(school_id)
+    if school:
+        db.session.delete(school)
+        db.session.commit()
+        flash(f'School "{school.name}" and associated records deleted.', 'success')
+    else:
+        flash('School not found.', 'error')
+
+    return redirect(url_for('index'))
+
 @app.route('/add_user', methods=['POST'])
 def add_user():
     user = get_current_user()
@@ -512,6 +569,27 @@ def add_user():
 
     return redirect(url_for('index'))
 
+@app.route('/delete_user/<int:user_id>', methods=['POST'])
+def delete_user(user_id):
+    current_user = get_current_user()
+    if not current_user or current_user.role != 'Admin':
+        flash('Unauthorized action.', 'error')
+        return redirect(url_for('index'))
+
+    if current_user.id == user_id:
+        flash('You cannot delete your own account while logged in.', 'error')
+        return redirect(url_for('index'))
+
+    target_user = User.query.get(user_id)
+    if target_user:
+        db.session.delete(target_user)
+        db.session.commit()
+        flash(f'User "{target_user.username}" deleted successfully.', 'success')
+    else:
+        flash('User not found.', 'error')
+
+    return redirect(url_for('index'))
+
 @app.route('/add_student', methods=['POST'])
 def add_student():
     user = get_current_user()
@@ -523,7 +601,6 @@ def add_student():
     absences = int(request.form.get('absences', 0))
     tardies = int(request.form.get('tardies', 0))
 
-    # Auto-assign school ID based on current user role
     if user.role == 'Admin':
         school_id = request.form.get('school_id')
         school_id = int(school_id) if school_id else None
@@ -559,7 +636,6 @@ def upload_csv():
         flash('No file selected.', 'error')
         return redirect(url_for('index'))
 
-    # Determine school context for import
     if user.role == 'Admin':
         school_id_param = request.form.get('school_id')
         school_id = int(school_id_param) if school_id_param else None
@@ -570,7 +646,6 @@ def upload_csv():
         stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
         csv_input = csv.DictReader(stream)
 
-        # Remove existing records for this specific school scope
         if school_id:
             StudentRecord.query.filter_by(school_id=school_id).delete()
         elif user.role == 'Admin':
