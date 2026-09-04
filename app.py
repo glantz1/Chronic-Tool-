@@ -126,6 +126,9 @@ INDEX_HTML = """
         .alert { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.875rem; }
         .alert-success { background: var(--success-bg); color: var(--success-text); border: 1px solid #bbf7d0; }
         .alert-error { background: var(--danger-bg); color: var(--danger-text); border: 1px solid #fecaca; }
+        details summary { cursor: pointer; font-weight: 600; color: var(--primary); font-size: 0.875rem; user-select: none; padding: 0.25rem 0; }
+        details summary:hover { text-decoration: underline; }
+        details[open] summary { margin-bottom: 0.75rem; }
     </style>
 </head>
 <body>
@@ -174,42 +177,44 @@ INDEX_HTML = """
         {% if current_user.role == 'Admin' %}
         <!-- Admin-Only System Controls -->
         <div class="grid-2">
-            <!-- Add School -->
+            <!-- Add & Manage Schools -->
             <div class="card">
                 <h3 class="card-title" style="margin-bottom:1rem;">Manage Schools</h3>
-                <form method="POST" action="/add_school" class="form-row" style="margin-bottom:1.5rem;">
+                <form method="POST" action="/add_school" class="form-row" style="margin-bottom:1rem;">
                     <input type="text" name="name" placeholder="School Name" required style="flex:2;">
                     <input type="text" name="code" placeholder="Code (e.g. LHS)" required style="flex:1;">
                     <button type="submit" class="btn">Add School</button>
                 </form>
 
-                <h4 style="font-size:0.9rem; color:var(--muted); margin-bottom:0.5rem;">Active Schools</h4>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Code</th>
-                            <th style="text-align:right;">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for school in schools %}
-                        <tr>
-                            <td><strong>{{ school.name }}</strong></td>
-                            <td><code>{{ school.code }}</code></td>
-                            <td style="text-align:right;">
-                                <form method="POST" action="/delete_school/{{ school.id }}" style="display:inline;" onsubmit="return confirm('Are you sure? Deleting a school deletes all attached students!');">
-                                    <button type="submit" class="btn-danger">Delete</button>
-                                </form>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="3" style="color:var(--muted); text-align:center;">No schools added yet.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                <details>
+                    <summary>View / Delete Registered Schools ({{ schools|length }})</summary>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Code</th>
+                                <th style="text-align:right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for school in schools %}
+                            <tr>
+                                <td><strong>{{ school.name }}</strong></td>
+                                <td><code>{{ school.code }}</code></td>
+                                <td style="text-align:right;">
+                                    <form method="POST" action="/delete_school/{{ school.id }}" style="display:inline;" onsubmit="return confirm('Are you sure? Deleting a school deletes all attached students!');">
+                                        <button type="submit" class="btn-danger">Delete</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="3" style="color:var(--muted); text-align:center;">No schools added yet.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </details>
             </div>
 
             <!-- Manage Users -->
@@ -288,39 +293,41 @@ INDEX_HTML = """
         </div>
 
         {% if current_user.role == 'Admin' %}
-        <!-- System Users List (Admin Only) -->
+        <!-- Collapsible System Accounts List (Admin Only) -->
         <div class="card">
-            <h3 class="card-title" style="margin-bottom:1rem;">System Accounts</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Username</th>
-                        <th>Role</th>
-                        <th>Assigned School Scope</th>
-                        <th style="text-align:right;">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for u in users %}
-                    <tr>
-                        <td>{{ u.id }}</td>
-                        <td><strong>{{ u.username }}</strong></td>
-                        <td><span class="badge badge-success">{{ u.role }}</span></td>
-                        <td>{{ u.school.name if u.school else 'Global Scope (All Schools)' }}</td>
-                        <td style="text-align:right;">
-                            {% if u.id != current_user.id %}
-                            <form method="POST" action="/delete_user/{{ u.id }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this user?');">
-                                <button type="submit" class="btn-danger">Delete User</button>
-                            </form>
-                            {% else %}
-                            <span style="color:var(--muted); font-size:0.8rem;">Current Session</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <details>
+                <summary style="font-size: 1.1rem; font-weight: 600; color: var(--text);">Manage Existing User Accounts ({{ users|length }})</summary>
+                <table style="margin-top: 1rem;">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Username</th>
+                            <th>Role</th>
+                            <th>Assigned School Scope</th>
+                            <th style="text-align:right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr>
+                            <td>{{ u.id }}</td>
+                            <td><strong>{{ u.username }}</strong></td>
+                            <td><span class="badge badge-success">{{ u.role }}</span></td>
+                            <td>{{ u.school.name if u.school else 'Global Scope (All Schools)' }}</td>
+                            <td style="text-align:right;">
+                                {% if u.id != current_user.id %}
+                                <form method="POST" action="/delete_user/{{ u.id }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this user?');">
+                                    <button type="submit" class="btn-danger">Delete User</button>
+                                </form>
+                                {% else %}
+                                <span style="color:var(--muted); font-size:0.8rem;">Current Session</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </details>
         </div>
         {% endif %}
 
@@ -643,7 +650,6 @@ def upload_csv():
         school_id = user.school_id
 
     try:
-        # Decode using utf-8-sig to automatically strip Excel's BOM if present
         content = file.stream.read().decode('utf-8-sig')
         stream = io.StringIO(content, newline=None)
         csv_input = csv.DictReader(stream)
@@ -654,10 +660,8 @@ def upload_csv():
             StudentRecord.query.filter_by(school_id=None).delete()
 
         for row in csv_input:
-            # Normalize dictionary keys (strip whitespace & lowercase)
             clean_row = {str(k).strip().lower(): str(v).strip() for k, v in row.items() if k}
 
-            # Helper function to extract integer values safely
             def parse_int(val, default=0):
                 try:
                     return int(float(val)) if val else default
