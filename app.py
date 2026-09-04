@@ -1,7 +1,7 @@
 import os
 import csv
 import io
-from flask import Flask, render_template_string, request, redirect, url_for, flash
+from flask import Flask, render_template_string, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -17,16 +17,19 @@ TARDY_CONVERSION_FACTOR = 3
 
 # --- Database Models ---
 
+class School(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), unique=True, nullable=False)
+    code = db.Column(db.String(20), unique=True, nullable=False)
+
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), default='Staff')  # 'Admin' or 'Staff'
+    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)
 
-class School(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), unique=True, nullable=False)
-    code = db.Column(db.String(20), unique=True, nullable=False)
+    school = db.relationship('School', backref=db.backref('users', lazy=True))
 
 class StudentRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -96,6 +99,7 @@ INDEX_HTML = """
         :root { --primary: #2563eb; --primary-hover: #1d4ed8; --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #64748b; --border: #e2e8f0; --danger-bg: #fef2f2; --danger-text: #991b1b; --success-bg: #f0fdf4; --success-text: #166534; }
         body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; }
         .navbar { background: var(--card); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .user-info { display: flex; align-items: center; gap: 1rem; }
         .container { max-width: 1200px; margin: 2rem auto; padding: 0 1.5rem; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
         .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }
@@ -123,7 +127,11 @@ INDEX_HTML = """
 <body>
     <div class="navbar">
         <div style="font-weight:700; font-size:1.25rem;">📊 Chronic Absenteeism Tracker</div>
-        <div>
+        <div class="user-info">
+            <span style="font-size:0.875rem; color:var(--muted);">
+                Logged in as: <strong>{{ current_user.username }}</strong> ({{ current_user.role }}) 
+                {% if current_user.school %} &bull; <em>{{ current_user.school.name }}</em>{% endif %}
+            </span>
             <a href="/logout" class="btn btn-outline" style="color:var(--danger-text);">Sign Out</a>
         </div>
     </div>
@@ -140,7 +148,7 @@ INDEX_HTML = """
         <!-- Metrics Overview -->
         <div class="metrics-grid">
             <div class="metric-card">
-                <div class="metric-title">Total Students</div>
+                <div class="metric-title">Total Visible Students</div>
                 <div class="metric-value">{{ total_students }}</div>
             </div>
             <div class="metric-card">
@@ -151,20 +159,23 @@ INDEX_HTML = """
                 <div class="metric-title">Average Absenteeism Rate</div>
                 <div class="metric-value">{{ "%.1f"|format(avg_rate) }}%</div>
             </div>
+            {% if current_user.role == 'Admin' %}
             <div class="metric-card">
                 <div class="metric-title">Registered Schools</div>
                 <div class="metric-value">{{ schools|length }}</div>
             </div>
+            {% endif %}
         </div>
 
-        <!-- Admin & Management Controls -->
+        {% if current_user.role == 'Admin' %}
+        <!-- Admin-Only System Controls -->
         <div class="grid-2">
             <!-- Add School -->
             <div class="card">
                 <h3 class="card-title" style="margin-bottom:1rem;">Manage Schools</h3>
                 <form method="POST" action="/add_school" class="form-row">
                     <input type="text" name="name" placeholder="School Name" required style="flex:2;">
-                    <input type="text" name="code" placeholder="Code (e.g. HS1)" required style="flex:1;">
+                    <input type="text" name="code" placeholder="Code (e.g. LHS)" required style="flex:1;">
                     <button type="submit" class="btn">Add School</button>
                 </form>
             </div>
@@ -172,17 +183,28 @@ INDEX_HTML = """
             <!-- Manage Users -->
             <div class="card">
                 <h3 class="card-title" style="margin-bottom:1rem;">Add System User</h3>
-                <form method="POST" action="/add_user" class="form-row">
-                    <input type="text" name="username" placeholder="Username" required style="flex:1;">
-                    <input type="password" name="password" placeholder="Password" required style="flex:1;">
-                    <select name="role">
-                        <option value="Staff">Staff</option>
-                        <option value="Admin">Admin</option>
-                    </select>
-                    <button type="submit" class="btn">Create User</button>
+                <form method="POST" action="/add_user" style="display:flex; flex-direction:column; gap:0.75rem;">
+                    <div class="form-row">
+                        <input type="text" name="username" placeholder="Username" required style="flex:1;">
+                        <input type="password" name="password" placeholder="Password" required style="flex:1;">
+                    </div>
+                    <div class="form-row">
+                        <select name="role" style="flex:1;">
+                            <option value="Staff">Staff</option>
+                            <option value="Admin">Admin</option>
+                        </select>
+                        <select name="school_id" style="flex:1;">
+                            <option value="">No School (Admin / Global)</option>
+                            {% for school in schools %}
+                            <option value="{{ school.id }}">{{ school.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn">Create User</button>
+                    </div>
                 </form>
             </div>
         </div>
+        {% endif %}
 
         <!-- Add Student & Import CSV -->
         <div class="grid-2">
@@ -194,14 +216,18 @@ INDEX_HTML = """
                         <input type="text" name="name" placeholder="Student Name" required style="flex:2;">
                     </div>
                     <div class="form-row">
-                        <select name="school_id" style="flex:1;">
-                            <option value="">Select School...</option>
+                        {% if current_user.role == 'Admin' %}
+                        <select name="school_id" style="flex:1;" required>
+                            <option value="">Assign School...</option>
                             {% for school in schools %}
                             <option value="{{ school.id }}">{{ school.name }} ({{ school.code }})</option>
                             {% endfor %}
                         </select>
-                        <input type="number" name="absences" placeholder="Absences" value="0" style="width:100px;">
-                        <input type="number" name="tardies" placeholder="Tardies" value="0" style="width:100px;">
+                        {% else %}
+                        <input type="text" value="{{ current_user.school.name if current_user.school else 'Unassigned' }}" disabled style="flex:1; background:#f1f5f9;">
+                        {% endif %}
+                        <input type="number" name="absences" placeholder="Absences" value="0" style="width:90px;">
+                        <input type="number" name="tardies" placeholder="Tardies" value="0" style="width:90px;">
                         <button type="submit" class="btn">Add Student</button>
                     </div>
                 </form>
@@ -210,16 +236,27 @@ INDEX_HTML = """
             <div class="card">
                 <h3 class="card-title" style="margin-bottom:1rem;">Import Attendance CSV</h3>
                 <form method="POST" action="/upload_csv" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:0.75rem;">
+                    {% if current_user.role == 'Admin' %}
+                    <div class="form-row">
+                        <select name="school_id" style="flex:1;" required>
+                            <option value="">Target School for Import...</option>
+                            {% for school in schools %}
+                            <option value="{{ school.id }}">{{ school.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
                     <div class="form-row">
                         <input type="file" name="file" accept=".csv" required style="flex:1;">
                         <button type="submit" class="btn">Import CSV</button>
                     </div>
-                    <small style="color:var(--muted);">Expected columns: <code>student_id, name, absences, tardies, total_days</code></small>
+                    <small style="color:var(--muted);">CSV format: <code>student_id, name, absences, tardies, total_days</code></small>
                 </form>
             </div>
         </div>
 
-        <!-- System Users List -->
+        {% if current_user.role == 'Admin' %}
+        <!-- System Users List (Admin Only) -->
         <div class="card">
             <h3 class="card-title" style="margin-bottom:1rem;">System Accounts</h3>
             <table>
@@ -228,19 +265,22 @@ INDEX_HTML = """
                         <th>ID</th>
                         <th>Username</th>
                         <th>Role</th>
+                        <th>Assigned School Scope</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for user in users %}
+                    {% for u in users %}
                     <tr>
-                        <td>{{ user.id }}</td>
-                        <td><strong>{{ user.username }}</strong></td>
-                        <td><span class="badge badge-success">{{ user.role }}</span></td>
+                        <td>{{ u.id }}</td>
+                        <td><strong>{{ u.username }}</strong></td>
+                        <td><span class="badge badge-success">{{ u.role }}</span></td>
+                        <td>{{ u.school.name if u.school else 'Global Scope (All Schools)' }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% endif %}
 
         <!-- Student Roster -->
         <div class="card">
@@ -281,7 +321,7 @@ INDEX_HTML = """
                     {% else %}
                     <tr>
                         <td colspan="8" style="text-align: center; color: var(--muted); padding: 2rem;">
-                            No student record data available.
+                            No student record data available for this scope.
                         </td>
                     </tr>
                     {% endfor %}
@@ -297,7 +337,7 @@ INDEX_HTML = """
 
 def init_db():
     with app.app_context():
-        # Reset schema to sync database changes cleanly
+        # Reset schema cleanly
         try:
             db.session.execute(db.text('DROP SCHEMA public CASCADE;'))
             db.session.execute(db.text('CREATE SCHEMA public;'))
@@ -307,26 +347,64 @@ def init_db():
 
         db.create_all()
 
+        # Seed initial default schools
+        lhs = School.query.filter_by(code='LHS').first()
+        if not lhs:
+            lhs = School(name='Lincoln High School', code='LHS')
+            db.session.add(lhs)
+
+        mms = School.query.filter_by(code='MMS').first()
+        if not mms:
+            mms = School(name='Madison Middle School', code='MMS')
+            db.session.add(mms)
+
+        db.session.commit()
+
         # Seed default admin user
         if not User.query.filter_by(username='admin').first():
-            hashed = generate_password_hash('admin123')
-            admin = User(username='admin', password_hash=hashed, role='Admin')
+            admin = User(
+                username='admin', 
+                password_hash=generate_password_hash('admin123'), 
+                role='Admin'
+            )
             db.session.add(admin)
 
-        # Seed initial default school
-        if not School.query.first():
-            default_school = School(name='Lincoln High School', code='LHS')
-            db.session.add(default_school)
+        # Seed sample staff user assigned to Lincoln High
+        if not User.query.filter_by(username='lincoln_staff').first():
+            staff = User(
+                username='lincoln_staff',
+                password_hash=generate_password_hash('staff123'),
+                role='Staff',
+                school_id=lhs.id
+            )
+            db.session.add(staff)
 
         db.session.commit()
 
 init_db()
 
+# --- Helper Functions ---
+
+def get_current_user():
+    user_id = session.get('user_id')
+    if user_id:
+        return User.query.get(user_id)
+    return None
+
 # --- Routes ---
 
 @app.route('/')
 def index():
-    records = StudentRecord.query.all()
+    user = get_current_user()
+    if not user:
+        return redirect(url_for('login'))
+
+    # Scope query by school if the user is a Staff member
+    if user.role == 'Admin':
+        records = StudentRecord.query.all()
+    else:
+        records = StudentRecord.query.filter_by(school_id=user.school_id).all()
+
     schools = School.query.all()
     users = User.query.all()
 
@@ -359,6 +437,7 @@ def index():
 
     return render_template_string(
         INDEX_HTML,
+        current_user=user,
         students=students_data,
         schools=schools,
         users=users,
@@ -375,6 +454,7 @@ def login():
 
         user = User.query.filter_by(username=username).first()
         if user and check_password_hash(user.password_hash, password):
+            session['user_id'] = user.id
             return redirect(url_for('index'))
 
         flash('Invalid username or password.', 'error')
@@ -383,10 +463,16 @@ def login():
 
 @app.route('/logout')
 def logout():
+    session.pop('user_id', None)
     return redirect(url_for('login'))
 
 @app.route('/add_school', methods=['POST'])
 def add_school():
+    user = get_current_user()
+    if not user or user.role != 'Admin':
+        flash('Unauthorized action.', 'error')
+        return redirect(url_for('index'))
+
     name = request.form.get('name')
     code = request.form.get('code')
 
@@ -400,34 +486,55 @@ def add_school():
 
 @app.route('/add_user', methods=['POST'])
 def add_user():
+    user = get_current_user()
+    if not user or user.role != 'Admin':
+        flash('Unauthorized action.', 'error')
+        return redirect(url_for('index'))
+
     username = request.form.get('username')
     password = request.form.get('password')
     role = request.form.get('role', 'Staff')
+    school_id = request.form.get('school_id')
 
     if username and password:
         if User.query.filter_by(username=username).first():
             flash('Username already exists.', 'error')
         else:
-            user = User(username=username.strip(), password_hash=generate_password_hash(password), role=role)
-            db.session.add(user)
+            new_user = User(
+                username=username.strip(),
+                password_hash=generate_password_hash(password),
+                role=role,
+                school_id=int(school_id) if school_id else None
+            )
+            db.session.add(new_user)
             db.session.commit()
-            flash('User created successfully!', 'success')
+            flash('User account created successfully!', 'success')
 
     return redirect(url_for('index'))
 
 @app.route('/add_student', methods=['POST'])
 def add_student():
+    user = get_current_user()
+    if not user:
+        return redirect(url_for('login'))
+
     student_id = request.form.get('student_id')
     name = request.form.get('name')
-    school_id = request.form.get('school_id')
     absences = int(request.form.get('absences', 0))
     tardies = int(request.form.get('tardies', 0))
+
+    # Auto-assign school ID based on current user role
+    if user.role == 'Admin':
+        school_id = request.form.get('school_id')
+        school_id = int(school_id) if school_id else None
+    else:
+        school_id = user.school_id
 
     if student_id and name:
         student = StudentRecord(
             student_id=student_id.strip(),
             name=name.strip(),
-            school_id=int(school_id) if school_id else None,
+            school_id=school_id,
             absences=absences,
             tardies=tardies
         )
@@ -439,6 +546,10 @@ def add_student():
 
 @app.route('/upload_csv', methods=['POST'])
 def upload_csv():
+    user = get_current_user()
+    if not user:
+        return redirect(url_for('login'))
+
     if 'file' not in request.files:
         flash('No file provided.', 'error')
         return redirect(url_for('index'))
@@ -448,16 +559,28 @@ def upload_csv():
         flash('No file selected.', 'error')
         return redirect(url_for('index'))
 
+    # Determine school context for import
+    if user.role == 'Admin':
+        school_id_param = request.form.get('school_id')
+        school_id = int(school_id_param) if school_id_param else None
+    else:
+        school_id = user.school_id
+
     try:
         stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
         csv_input = csv.DictReader(stream)
 
-        StudentRecord.query.delete()
+        # Remove existing records for this specific school scope
+        if school_id:
+            StudentRecord.query.filter_by(school_id=school_id).delete()
+        elif user.role == 'Admin':
+            StudentRecord.query.filter_by(school_id=None).delete()
 
         for row in csv_input:
             student = StudentRecord(
                 student_id=str(row.get('student_id', '')).strip(),
                 name=str(row.get('name', '')).strip(),
+                school_id=school_id,
                 absences=int(row.get('absences', 0)),
                 tardies=int(row.get('tardies', 0)),
                 total_days=int(row.get('total_days', 180))
@@ -465,7 +588,7 @@ def upload_csv():
             db.session.add(student)
 
         db.session.commit()
-        flash('Attendance CSV processed and updated!', 'success')
+        flash('Attendance CSV processed and roster updated!', 'success')
     except Exception as e:
         db.session.rollback()
         flash(f'Error processing CSV: {str(e)}', 'error')
