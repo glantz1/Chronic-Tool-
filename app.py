@@ -643,7 +643,9 @@ def upload_csv():
         school_id = user.school_id
 
     try:
-        stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
+        # Decode using utf-8-sig to automatically strip Excel's BOM if present
+        content = file.stream.read().decode('utf-8-sig')
+        stream = io.StringIO(content, newline=None)
         csv_input = csv.DictReader(stream)
 
         if school_id:
@@ -652,15 +654,32 @@ def upload_csv():
             StudentRecord.query.filter_by(school_id=None).delete()
 
         for row in csv_input:
-            student = StudentRecord(
-                student_id=str(row.get('student_id', '')).strip(),
-                name=str(row.get('name', '')).strip(),
-                school_id=school_id,
-                absences=int(row.get('absences', 0)),
-                tardies=int(row.get('tardies', 0)),
-                total_days=int(row.get('total_days', 180))
-            )
-            db.session.add(student)
+            # Normalize dictionary keys (strip whitespace & lowercase)
+            clean_row = {str(k).strip().lower(): str(v).strip() for k, v in row.items() if k}
+
+            # Helper function to extract integer values safely
+            def parse_int(val, default=0):
+                try:
+                    return int(float(val)) if val else default
+                except ValueError:
+                    return default
+
+            student_id = clean_row.get('student_id') or clean_row.get('student id') or clean_row.get('id', '')
+            name = clean_row.get('name') or clean_row.get('student name') or clean_row.get('student_name', '')
+            absences = parse_int(clean_row.get('absences'))
+            tardies = parse_int(clean_row.get('tardies'))
+            total_days = parse_int(clean_row.get('total_days') or clean_row.get('total days'), default=180)
+
+            if student_id or name:
+                student = StudentRecord(
+                    student_id=student_id,
+                    name=name,
+                    school_id=school_id,
+                    absences=absences,
+                    tardies=tardies,
+                    total_days=total_days
+                )
+                db.session.add(student)
 
         db.session.commit()
         flash('Attendance CSV processed and roster updated!', 'success')
