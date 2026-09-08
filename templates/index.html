@@ -280,17 +280,25 @@
         </div>
     </div>
 
+    <!-- Complete JavaScript Logic -->
     <script>
         let currentUser = null;
 
         function toggleModal(id) {
-            document.getElementById(id).classList.toggle('hidden');
+            const el = document.getElementById(id);
+            if (el) {
+                el.classList.toggle('hidden');
+            } else {
+                console.error(`Modal element "${id}" was not found.`);
+            }
         }
 
         async function checkAuth() {
             try {
                 const res = await fetch('/me');
+                if (!res.ok) throw new Error("Auth endpoint rejected query");
                 const data = await res.json();
+                
                 if (data.logged_in) {
                     currentUser = data.user;
                     document.getElementById('loginView').classList.add('hidden');
@@ -305,28 +313,39 @@
 
                     await loadSchools();
                 } else {
-                    document.getElementById('loginView').classList.remove('hidden');
-                    document.getElementById('dashboardView').classList.add('hidden');
+                    showLogin();
                 }
             } catch (err) {
-                console.error("Auth check failed", err);
+                console.warn("Auth check unfulfilled or offline, displaying login view", err);
+                showLogin();
             }
+        }
+
+        function showLogin() {
+            document.getElementById('loginView').classList.remove('hidden');
+            document.getElementById('dashboardView').classList.add('hidden');
+            document.getElementById('userInfo').classList.add('hidden');
         }
 
         async function handleLogin(e) {
             e.preventDefault();
             const email = document.getElementById('loginEmail').value;
             const password = document.getElementById('loginPassword').value;
-            const res = await fetch('/login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ email, password })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                checkAuth();
-            } else {
-                document.getElementById('loginError').textContent = data.error;
+            try {
+                const res = await fetch('/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    checkAuth();
+                } else {
+                    document.getElementById('loginError').textContent = data.error || "Login failed.";
+                    document.getElementById('loginError').classList.remove('hidden');
+                }
+            } catch (err) {
+                document.getElementById('loginError').textContent = "Unable to connect to server.";
                 document.getElementById('loginError').classList.remove('hidden');
             }
         }
@@ -337,15 +356,19 @@
         }
 
         async function loadSchools() {
-            const res = await fetch('/schools');
-            const data = await res.json();
-            const select = document.getElementById('schoolSelect');
-            select.innerHTML = '';
-            (data.schools || []).forEach(s => {
-                select.innerHTML += `<option value="${s.id}">${s.name}</option>`;
-            });
-            if (data.schools && data.schools.length > 0) {
-                loadDashboard();
+            try {
+                const res = await fetch('/schools');
+                const data = await res.json();
+                const select = document.getElementById('schoolSelect');
+                select.innerHTML = '';
+                (data.schools || []).forEach(s => {
+                    select.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+                });
+                if (data.schools && data.schools.length > 0) {
+                    loadDashboard();
+                }
+            } catch(e) {
+                console.error("Could not load schools:", e);
             }
         }
 
@@ -377,50 +400,53 @@
             const chronic = document.getElementById('chronicOnly').checked;
 
             const url = `/students?school_id=${schoolId}&search=${encodeURIComponent(search)}&grade=${encodeURIComponent(grade)}&sort=${sort}&chronic=${chronic}`;
-            const res = await fetch(url);
-            const data = await res.json();
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
 
-            document.getElementById('statTotal').textContent = data.total_students || 0;
-            document.getElementById('statChronic').textContent = data.chronic_count || 0;
-            document.getElementById('statRate').textContent = `${data.chronic_rate_pct || 0}%`;
+                document.getElementById('statTotal').textContent = data.total_students || 0;
+                document.getElementById('statChronic').textContent = data.chronic_count || 0;
+                document.getElementById('statRate').textContent = `${data.chronic_rate_pct || 0}%`;
 
-            // Populate Grade Filter options dynamically if not already populated
-            const gradeSelect = document.getElementById('gradeFilter');
-            const currentGradeSelection = gradeSelect.value;
-            gradeSelect.innerHTML = '<option value="">All Grades</option>';
-            (data.available_grades || []).forEach(g => {
-                const selected = g === currentGradeSelection ? 'selected' : '';
-                gradeSelect.innerHTML += `<option value="${g}" ${selected}>Grade ${g}</option>`;
-            });
+                const gradeSelect = document.getElementById('gradeFilter');
+                const currentGradeSelection = gradeSelect.value;
+                gradeSelect.innerHTML = '<option value="">All Grades</option>';
+                (data.available_grades || []).forEach(g => {
+                    const selected = g === currentGradeSelection ? 'selected' : '';
+                    gradeSelect.innerHTML += `<option value="${g}" ${selected}>Grade ${g}</option>`;
+                });
 
-            const tbody = document.getElementById('studentTableBody');
-            tbody.innerHTML = '';
+                const tbody = document.getElementById('studentTableBody');
+                tbody.innerHTML = '';
 
-            (data.students || []).forEach(s => {
-                const statusBadge = s.is_chronic 
-                    ? `<span class="bg-red-100 text-red-700 text-xs px-2.5 py-1 rounded-full font-semibold">Chronic</span>`
-                    : `<span class="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-semibold">On Track</span>`;
+                (data.students || []).forEach(s => {
+                    const statusBadge = s.is_chronic 
+                        ? `<span class="bg-red-100 text-red-700 text-xs px-2.5 py-1 rounded-full font-semibold">Chronic</span>`
+                        : `<span class="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-semibold">On Track</span>`;
 
-                const row = document.createElement('tr');
-                row.className = "hover:bg-indigo-50/50 cursor-pointer transition";
-                row.onclick = () => openInterventionModal(s);
-                
-                row.innerHTML = `
-                    <td class="p-3.5 font-medium text-slate-700">${s.student_id}</td>
-                    <td class="p-3.5 font-bold text-slate-800">${s.student_name}</td>
-                    <td class="p-3.5">${s.grade || '-'}</td>
-                    <td class="p-3.5 text-center font-semibold text-slate-800">${s.days_absent}</td>
-                    <td class="p-3.5 text-center text-amber-600 font-semibold">${s.unexcused_absences}</td>
-                    <td class="p-3.5 text-center font-bold text-slate-800">${s.attendance_rate_pct}%</td>
-                    <td class="p-3.5 text-center">${statusBadge}</td>
-                    <td class="p-3.5 text-right font-medium text-indigo-600">
-                        <span class="bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg text-xs font-semibold">
-                            <i class="fa-solid fa-clipboard-list mr-1"></i> ${s.interventions_count} logged
-                        </span>
-                    </td>
-                `;
-                tbody.appendChild(row);
-            });
+                    const row = document.createElement('tr');
+                    row.className = "hover:bg-indigo-50/50 cursor-pointer transition";
+                    row.onclick = () => openInterventionModal(s);
+                    
+                    row.innerHTML = `
+                        <td class="p-3.5 font-medium text-slate-700">${s.student_id}</td>
+                        <td class="p-3.5 font-bold text-slate-800">${s.student_name}</td>
+                        <td class="p-3.5">${s.grade || '-'}</td>
+                        <td class="p-3.5 text-center font-semibold text-slate-800">${s.days_absent}</td>
+                        <td class="p-3.5 text-center text-amber-600 font-semibold">${s.unexcused_absences}</td>
+                        <td class="p-3.5 text-center font-bold text-slate-800">${s.attendance_rate_pct}%</td>
+                        <td class="p-3.5 text-center">${statusBadge}</td>
+                        <td class="p-3.5 text-right font-medium text-indigo-600">
+                            <span class="bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg text-xs font-semibold">
+                                <i class="fa-solid fa-clipboard-list mr-1"></i> ${s.interventions_count} logged
+                            </span>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch(e) {
+                console.error("Dashboard fetch error:", e);
+            }
         }
 
         async function openInterventionModal(student) {
@@ -428,7 +454,6 @@
             document.getElementById('interStudentName').textContent = student.student_name;
             document.getElementById('interStudentMeta').textContent = `ID: ${student.student_id} | Grade: ${student.grade || 'N/A'} | Absences: ${student.days_absent} | Attendance: ${student.attendance_rate_pct}%`;
             
-            // Set default date to today
             document.getElementById('interDate').value = new Date().toISOString().split('T')[0];
             document.getElementById('interNotes').value = '';
             document.getElementById('interError').classList.add('hidden');
@@ -441,32 +466,32 @@
             const listDiv = document.getElementById('interventionHistoryList');
             listDiv.innerHTML = '<p class="text-xs text-slate-400">Loading history...</p>';
 
-            const res = await fetch(`/interventions?student_db_id=${studentDbId}`);
-            if (!res.ok) {
-                listDiv.innerHTML = '<p class="text-xs text-red-500">Failed to load intervention history.</p>';
-                return;
-            }
+            try {
+                const res = await fetch(`/interventions?student_db_id=${studentDbId}`);
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                listDiv.innerHTML = '';
 
-            const data = await res.json();
-            listDiv.innerHTML = '';
+                if (!data.interventions || data.interventions.length === 0) {
+                    listDiv.innerHTML = '<p class="text-xs text-slate-400 italic">No interventions recorded yet for this student.</p>';
+                    return;
+                }
 
-            if (!data.interventions || data.interventions.length === 0) {
-                listDiv.innerHTML = '<p class="text-xs text-slate-400 italic">No interventions recorded yet for this student.</p>';
-                return;
-            }
-
-            data.interventions.forEach(item => {
-                listDiv.innerHTML += `
-                    <div class="bg-slate-50 border border-slate-200 p-3 rounded-lg text-xs space-y-1">
-                        <div class="flex justify-between items-center">
-                            <span class="font-bold text-slate-800">${item.type}</span>
-                            <span class="text-slate-400 font-medium">${item.date}</span>
+                data.interventions.forEach(item => {
+                    listDiv.innerHTML += `
+                        <div class="bg-slate-50 border border-slate-200 p-3 rounded-lg text-xs space-y-1">
+                            <div class="flex justify-between items-center">
+                                <span class="font-bold text-slate-800">${item.type}</span>
+                                <span class="text-slate-400 font-medium">${item.date}</span>
+                            </div>
+                            <p class="text-slate-600">${item.notes || '<span class="italic text-slate-400">No additional notes provided.</span>'}</p>
+                            <div class="text-[10px] text-indigo-600 font-medium text-right pt-1">Logged by: ${item.logged_by}</div>
                         </div>
-                        <p class="text-slate-600">${item.notes || '<span class="italic text-slate-400">No additional notes provided.</span>'}</p>
-                        <div class="text-[10px] text-indigo-600 font-medium text-right pt-1">Logged by: ${item.logged_by}</div>
-                    </div>
-                `;
-            });
+                    `;
+                });
+            } catch(e) {
+                listDiv.innerHTML = '<p class="text-xs text-red-500">Failed to load intervention history.</p>';
+            }
         }
 
         async function handleSaveIntervention(e) {
@@ -494,7 +519,7 @@
             if (res.ok) {
                 document.getElementById('interNotes').value = '';
                 await loadInterventionHistory(studentDbId);
-                await loadDashboard(); // Update row count dynamically
+                await loadDashboard();
             } else {
                 errDiv.textContent = data.error || "Failed to log intervention.";
                 errDiv.classList.remove('hidden');
@@ -560,7 +585,6 @@
                 submitBtn.textContent = "Upload & Import";
             }
         }
-// ... (Keep existing JS functions: toggleModal, checkAuth, handleLogin, logout, loadSchools, handleAddSchool, loadDashboard, openInterventionModal, loadInterventionHistory, handleSaveIntervention, openUploadModal, handleUpload)
 
         async function openUsersModal() {
             toggleModal('usersModal');
@@ -582,28 +606,32 @@
         }
 
         async function loadUserList() {
-            const res = await fetch('/admin/users');
-            if (!res.ok) return;
-            
-            const data = await res.json();
-            const tbody = document.getElementById('userListTable');
-            tbody.innerHTML = '';
+            try {
+                const res = await fetch('/admin/users');
+                if (!res.ok) return;
+                
+                const data = await res.json();
+                const tbody = document.getElementById('userListTable');
+                tbody.innerHTML = '';
 
-            (data.users || []).forEach(user => {
-                const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-50";
-                tr.innerHTML = `
-                    <td class="p-2 font-medium">${user.email}</td>
-                    <td class="p-2 capitalize">${user.role}</td>
-                    <td class="p-2">${user.school_name || 'Global / All'}</td>
-                    <td class="p-2 text-right">
-                        <button onclick="deleteUser('${user.id}')" class="text-red-600 hover:text-red-800 text-xs font-semibold">
-                            <i class="fa-solid fa-trash mr-1"></i> Delete
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
+                (data.users || []).forEach(user => {
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-slate-50 border-b";
+                    tr.innerHTML = `
+                        <td class="p-2 font-medium text-slate-700">${user.email}</td>
+                        <td class="p-2 capitalize text-slate-600">${user.role}</td>
+                        <td class="p-2 text-slate-600">${user.school_name || 'Global / All'}</td>
+                        <td class="p-2 text-right">
+                            <button onclick="deleteUser('${user.id}')" class="text-red-600 hover:text-red-800 text-xs font-semibold">
+                                <i class="fa-solid fa-trash mr-1"></i> Delete
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch(e) {
+                console.error("Could not fetch user list", e);
+            }
         }
 
         async function handleAddUser(e) {
@@ -659,4 +687,3 @@
     </script>
 </body>
 </html>
-        
