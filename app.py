@@ -661,6 +661,30 @@ def add_user():
     flash(f"User '{username}' created successfully.", "success")
     return redirect(url_for('index'))
 
+@app.route('/admin/delete_user/<int:user_id>', methods=['POST'])
+@admin_required
+def delete_user(user_id):
+    # Prevent an admin from deleting themselves
+    if user_id == session.get('user_id'):
+        flash("You cannot delete your own admin account while logged in.", "error")
+        return redirect(url_for('index'))
+
+    user = User.query.get(user_id)
+    if not user:
+        flash("User not found.", "error")
+        return redirect(url_for('index'))
+
+    try:
+        username = user.username
+        db.session.delete(user)
+        db.session.commit()
+        flash(f"User '{username}' has been successfully deleted.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"An error occurred while deleting the user: {str(e)}", "error")
+
+    return redirect(url_for('index'))
+
 # ------------------------------------------------------------------------------
 # CSV Data Import Route
 # ------------------------------------------------------------------------------
