@@ -16,7 +16,15 @@ from sqlalchemy.exc import IntegrityError
 # -----------------------------------------------------------------------------
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///attendance_tracker.db')
+
+# Fetch Railway DATABASE_URL environment variable
+db_url = os.environ.get('DATABASE_URL', 'sqlite:///attendance_tracker.db')
+
+# Automatic fix for Railway URI compatibility (convert postgres:// to postgresql://)
+if db_url and db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -63,7 +71,7 @@ class Intervention(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
 # -----------------------------------------------------------------------------
-# Updated HTML Templates (Modern UI/UX)
+# Embedded HTML Templates (Modern UI)
 # -----------------------------------------------------------------------------
 LOGIN_HTML = """
 <!DOCTYPE html>
@@ -122,7 +130,7 @@ LOGIN_HTML = """
                 <div class="card login-card p-4 p-md-5">
                     <div class="text-center mb-4">
                         <div class="d-inline-flex align-items-center justify-content-center bg-primary bg-opacity-20 text-primary rounded-circle mb-3" style="width: 56px; height: 56px;">
-                            <svg width="28" height="28" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                            <svg width="28" height="28" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
                         </div>
                         <h4 class="fw-bold text-white mb-1">Attendance Tracker</h4>
                         <p class="text-secondary small mb-0">Sign in to access your dashboard</p>
@@ -716,7 +724,7 @@ def get_current_user():
 
 def init_db():
     db.create_all()
-    # Seed default Admin and Default School if database is empty
+    # Seed default Admin and Default School ONLY if database is completely empty
     if not School.query.first():
         default_school = School(name="Central High School", code="CHS")
         db.session.add(default_school)
@@ -900,7 +908,7 @@ def add_school():
         flash(f'School "{name}" created successfully.', 'info')
     except IntegrityError:
         db.session.rollback()
-        flash(f'School name or code already exists.', 'error')
+        flash('School name or code already exists.', 'error')
 
     return redirect(url_for('index'))
 
