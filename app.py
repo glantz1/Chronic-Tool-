@@ -329,7 +329,8 @@ INDEX_HTML = """
                         <select name="filter" class="form-select" onchange="this.form.submit()">
                             <option value="all" {% if selected_filter == 'all' %}selected{% endif %}>All Records</option>
                             <option value="chronic" {% if selected_filter == 'chronic' %}selected{% endif %}>Chronic Only (FTE ≤ 90%)</option>
-                            <option value="most-absences" {% if selected_filter == 'most-absences' %}selected{% endif %}>Most Absences</option>
+                            <option value="most-absences" {% if selected_filter == 'most-absences' %}selected{% endif %}>Most Total Absences</option>
+                            <option value="most-unexcused" {% if selected_filter == 'most-unexcused' %}selected{% endif %}>Most Unexcused Absences</option>
                             <option value="least-absences" {% if selected_filter == 'least-absences' %}selected{% endif %}>Least Absences</option>
                             <option value="highest-fte" {% if selected_filter == 'highest-fte' %}selected{% endif %}>Highest Present FTE%</option>
                             <option value="lowest-fte" {% if selected_filter == 'lowest-fte' %}selected{% endif %}>Lowest Present FTE%</option>
@@ -381,7 +382,8 @@ INDEX_HTML = """
                                 <th>Name</th>
                                 <th>Grade</th>
                                 <th>School</th>
-                                <th>Absences</th>
+                                <th>Total Absences</th>
+                                <th>Unexcused</th>
                                 <th>Tardies</th>
                                 <th>Present FTE %</th>
                                 <th>Status</th>
@@ -396,6 +398,7 @@ INDEX_HTML = """
                                 <td>{{ s.grade }}</td>
                                 <td>{{ s.school.name }}</td>
                                 <td>{{ "%.1f"|format(s.absences) }}</td>
+                                <td>{{ s.unexcused_absences }}</td>
                                 <td>{{ s.tardies }}</td>
                                 
                                 <td class="fw-semibold">
@@ -458,7 +461,7 @@ INDEX_HTML = """
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="9" class="text-center py-4 text-muted">No student records found.</td>
+                                <td colspan="10" class="text-center py-4 text-muted">No student records found.</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -553,7 +556,7 @@ def index():
         query = query.order_by(StudentRecord.absences.desc())
     elif selected_filter == 'least-absences':
         query = query.order_by(StudentRecord.absences.asc())
-    elif selected_filter == 'most-unexcused':  # <--- ADD THIS
+    elif selected_filter == 'most-unexcused':
         query = query.order_by(StudentRecord.unexcused_absences.desc())    
     elif selected_filter == 'highest-fte':
         query = query.order_by(StudentRecord.present_fte.desc())
@@ -646,132 +649,107 @@ def add_user():
         return redirect(url_for('index'))
 
     if User.query.filter_by(username=username).first():
-        flash(f"Username '{username}' is already taken.", "error")
+        flash(f"User '{username}' already exists.", "error")
         return redirect(url_for('index'))
 
-    new_user = User(
-        username=username,
-        role=role,
-        school_id=int(school_id) if school_id else None
-    )
-    new_user.set_password(password)
-    db.session.add(new_user)
-    db.session.commit()
+    user = User(username=username, role=role)
+    user.set_password(password)
+    
+    if school_id:
+        user.school_id = int(school_id)
 
+    db.session.add(user)
+    db.session.commit()
     flash(f"User '{username}' created successfully.", "success")
     return redirect(url_for('index'))
 
-@app.route('/admin/delete_user/<int:user_id>', methods=['POST'])
-@admin_required
-def delete_user(user_id):
-    # Prevent an admin from deleting themselves
-    if user_id == session.get('user_id'):
-        flash("You cannot delete your own admin account while logged in.", "error")
-        return redirect(url_for('index'))
-
-    user = User.query.get(user_id)
-    if not user:
-        flash("User not found.", "error")
-        return redirect(url_for('index'))
-
-    try:
-        username = user.username
-        db.session.delete(user)
-        db.session.commit()
-        flash(f"User '{username}' has been successfully deleted.", "success")
-    except Exception as e:
-        db.session.rollback()
-        flash(f"An error occurred while deleting the user: {str(e)}", "error")
-
-    return redirect(url_for('index'))
-
-# ------------------------------------------------------------------------------
-# CSV Data Import Route
-# ------------------------------------------------------------------------------
 @app.route('/upload_csv', methods=['POST'])
 @login_required
 def upload_csv():
-    file = request.files.get('file')
-    user = User.query.get(session['user_id'])
+    current_user = User.query.get(session['user_id'])
     
-    school_id = user.school_id if user.role != 'Admin' else request.form.get('school_id', user.school_id)
+    # Determine target school
+    if current_user.role == 'Admin':
+        school_id = request.form.get('school_id')
+        if not school_id:
+            flash("Please select a target school for the CSV upload.", "error")
+            return redirect(url_for('index'))
+        target_school_id = int(school_id)
+    else:
+        if not current_user.school_id:
+            flash("User does not have an assigned school.", "error")
+            return redirect(url_for('index'))
+        target_school_id = current_user.school_id
 
-    if not school_id:
-        flash("Please select a target school for CSV import.", "error")
-        return redirect(url_for('index'))
-
+    file = request.files.get('file')
     if not file or not file.filename.endswith('.csv'):
-        flash("Invalid file format. Please upload a .csv file.", "error")
+        flash("Please select a valid CSV file.", "error")
         return redirect(url_for('index'))
 
-    stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
-    csv_input = csv.DictReader(stream)
-
-    count = 0
-    for row in csv_input:
-        s_id = row.get('Student_ID') or row.get('student_id') or row.get('ID')
-        name = row.get('Name') or row.get('name')
-        grade = row.get('Grade') or row.get('grade') or 'N/A'
+    try:
+        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+        csv_reader = csv.DictReader(stream)
         
-        try:
-            absences = float(row.get('Absences', 0.0) or 0.0)
-        except ValueError:
-            absences = 0.0
+        imported_count = 0
+        for row in csv_reader:
+            # Case-insensitive column key retrieval helper
+            def get_val(keys, default=None):
+                for k in keys:
+                    for key in row.keys():
+                        if key.strip().lower() == k.lower():
+                            return row[key].strip()
+                return default
 
-        try:
-            tardies = int(row.get('Tardies', 0) or 0)
-        except ValueError:
-            tardies = 0
+            student_id = get_val(['student_id', 'id', 'student id'])
+            name = get_val(['name', 'student_name', 'student name'])
+            grade = get_val(['grade'], 'N/A')
+            absences = float(get_val(['absences', 'total_absences'], 0.0))
+            unexcused = int(get_val(['unexcused_absences', 'unexcused'], 0))
+            tardies = int(get_val(['tardies'], 0))
+            total_days = float(get_val(['total_days'], 180.0))
 
-        raw_fte = str(row.get('Present_FTE') or row.get('present_fte') or '').replace('%', '').strip()
-        if raw_fte:
-            try:
-                val = float(raw_fte)
-                present_fte = val * 100.0 if val <= 1.0 else val
-            except ValueError:
-                present_fte = None
-        else:
-            present_fte = None
+            if not student_id or not name:
+                continue
 
-        if s_id and name:
-            record = StudentRecord(
-                student_id=str(s_id),
-                name=name,
-                grade=str(grade),
-                school_id=int(school_id),
-                absences=absences,
-                tardies=tardies,
-                present_fte=present_fte
-            )
-            db.session.add(record)
-            count += 1
+            # Calculate present FTE percentage
+            present_fte = max(0.0, ((total_days - absences) / total_days) * 100) if total_days > 0 else 0.0
 
-    db.session.commit()
-    flash(f"Successfully imported {count} student records.", "success")
+            # Update existing or create new record
+            record = StudentRecord.query.filter_by(student_id=student_id, school_id=target_school_id).first()
+            if not record:
+                record = StudentRecord(student_id=student_id, school_id=target_school_id)
+                db.session.add(record)
+
+            record.name = name
+            record.grade = grade
+            record.absences = absences
+            record.unexcused_absences = unexcused
+            record.tardies = tardies
+            record.total_days = total_days
+            record.present_fte = present_fte
+
+            imported_count += 1
+
+        db.session.commit()
+        flash(f"Successfully processed {imported_count} student records.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error parsing CSV file: {str(e)}", "error")
+
     return redirect(url_for('index'))
 
 # ------------------------------------------------------------------------------
-# App Initialization & Default Seed Data
+# Initial Database Setup Helper
 # ------------------------------------------------------------------------------
 def init_db():
-    db.create_all()
-    if not School.query.first():
-        s1 = School(name="Lincoln High School")
-        s2 = School(name="Washington Middle School")
-        db.session.add_all([s1, s2])
-        db.session.commit()
-
-        admin = User(username="admin", role="Admin")
-        admin.set_password("admin123")
-        
-        user = User(username="staff", role="User", school_id=s1.id)
-        user.set_password("staff123")
-
-        db.session.add_all([admin, user])
-        db.session.commit()
-
-with app.app_context():
-    init_db()
+    with app.app_context():
+        db.create_all()
+        if not User.query.filter_by(username='admin').first():
+            admin = User(username='admin', role='Admin')
+            admin.set_password('admin123')
+            db.session.add(admin)
+            db.session.commit()
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8080)
+    init_db()
+    app.run(debug=True)
