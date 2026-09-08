@@ -517,33 +517,35 @@ def logout():
 @login_required
 def index():
     user = User.query.get(session['user_id'])
-    
+
     selected_school_id = request.args.get('school_id', 'all')
     selected_grade = request.args.get('grade', 'all')
     selected_filter = request.args.get('filter', 'all')
     search_query = request.args.get('q', '').strip()
     page = request.args.get('page', 1, type=int)
+    per_page = 25
 
     query = StudentRecord.query
 
+    # 1. Restrict non-admins to their assigned school
     if user.role != 'Admin':
-        # Add your non-admin query logic here (e.g., filtering by teacher/building/etc.), or remove line 529 if not needed.
-        pass
+        query = query.filter_by(school_id=user.school_id)
+    # 2. If Admin, filter by selected dropdown school (if not 'all')
+    elif selected_school_id != 'all':
+        query = query.filter_by(school_id=selected_school_id)
 
+    # 3. Grade Filter
     if selected_grade != 'all':
         query = query.filter_by(grade=selected_grade)
 
+    # 4. Search Query Filter
     if search_query:
         query = query.filter(
             (StudentRecord.name.ilike(f"%{search_query}%")) | 
             (StudentRecord.student_id.ilike(f"%{search_query}%"))
         )
 
-    selected_filter = request.args.get('filter', 'all')
-    page = request.args.get('page', 1, type=int)
-    per_page = 25  # Change this integer to match your preferred items per page
-
-    # Filtering & Sorting logic
+    # 5. Status / Attendance Filter
     if selected_filter == 'chronic':
         query = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0)
     elif selected_filter == 'most-absences':
@@ -555,7 +557,7 @@ def index():
     elif selected_filter == 'lowest-fte':
         query = query.order_by(StudentRecord.present_fte.asc())
 
-    # Calculate metrics
+    # 6. Calculate Metrics on Filtered Query
     total_students = query.count()
     at_risk_count = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0).count()
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
