@@ -382,6 +382,7 @@ INDEX_HTML = """
                                 <th>Tardies</th>
                                 <th>Present FTE %</th>
                                 <th>Status</th>
+                                <th class="text-end pe-4">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -409,10 +410,52 @@ INDEX_HTML = """
                                         <span class="badge-ontrack">On Track</span>
                                     {% endif %}
                                 </td>
+
+                                <!-- LOG INTERVENTION BUTTON -->
+                                <td class="text-end pe-3">
+                                    <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#interventionModal{{ s.id }}">
+                                        + Log Intervention
+                                    </button>
+
+                                    <!-- INTERVENTION MODAL -->
+                                    <div class="modal fade text-start" id="interventionModal{{ s.id }}" tabindex="-1" aria-hidden="true">
+                                        <div class="modal-dialog">
+                                            <div class="modal-content">
+                                                <form method="POST" action="{{ url_for('log_intervention', student_id=s.id) }}">
+                                                    <div class="modal-header">
+                                                        <h5 class="modal-title fs-6 fw-bold">Log Intervention: {{ s.name }}</h5>
+                                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                    </div>
+                                                    <div class="modal-body">
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-bold">Intervention Notes / Action Taken</label>
+                                                            <textarea name="notes" class="form-control" rows="3" placeholder="e.g. Phone call made to parent; Attendance plan signed." required></textarea>
+                                                        </div>
+
+                                                        {% if s.interventions %}
+                                                        <h6 class="fw-bold small mt-3">Previous Logs:</h6>
+                                                        <ul class="list-group list-group-flush small" style="max-height: 150px; overflow-y: auto;">
+                                                            {% for log in s.interventions %}
+                                                            <li class="list-group-item px-0 py-1">
+                                                                <span class="text-muted" style="font-size:0.8em;">{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</span>: {{ log.notes }}
+                                                            </li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                        {% endif %}
+                                                    </div>
+                                                    <div class="modal-footer">
+                                                        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                        <button type="submit" class="btn btn-sm btn-primary">Save Intervention</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="8" class="text-center py-4 text-muted">No student records found.</td>
+                                <td colspan="9" class="text-center py-4 text-muted">No student records found.</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -437,7 +480,7 @@ INDEX_HTML = """
         </div>
     </div>
 
-    <!-- BOOTSTRAP JS FOR EXPANDABLE ACCORDION CONTROLS -->
+    <!-- BOOTSTRAP JS FOR EXPANDABLE ACCORDION CONTROLS & MODALS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
@@ -508,7 +551,7 @@ def index():
     at_risk_count = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0).count()
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
 
-    per_page = 25
+    per_page = 100
     total_pages = math.ceil(total_students / per_page) if total_students > 0 else 1
     students = query.offset((page - 1) * per_page).limit(per_page).all()
 
@@ -542,6 +585,22 @@ def index():
         display_count=len(students),
         str=str
     )
+
+@app.route('/log_intervention/<int:student_id>', methods=['POST'])
+@login_required
+def log_intervention(student_id):
+    notes = request.form.get('notes', '').strip()
+    student = StudentRecord.query.get_or_404(student_id)
+
+    if notes:
+        intervention = Intervention(student_record_id=student.id, notes=notes)
+        db.session.add(intervention)
+        db.session.commit()
+        flash(f"Intervention logged for {student.name}.", "success")
+    else:
+        flash("Notes cannot be empty.", "error")
+
+    return redirect(url_for('index'))
 
 # ------------------------------------------------------------------------------
 # Admin Management Routes
@@ -628,12 +687,10 @@ def upload_csv():
         except ValueError:
             tardies = 0
 
-        # Store percentage directly (e.g. 95.20)
         raw_fte = str(row.get('Present_FTE') or row.get('present_fte') or '').replace('%', '').strip()
         if raw_fte:
             try:
                 val = float(raw_fte)
-                # If values are imported as 0.952, scale up to percentage scale 95.20
                 present_fte = val * 100.0 if val <= 1.0 else val
             except ValueError:
                 present_fte = None
