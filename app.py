@@ -540,6 +540,8 @@ def index():
         )
 
     selected_filter = request.args.get('filter', 'all')
+    page = request.args.get('page', 1, type=int)
+    per_page = 25  # Change this integer to match your preferred items per page
 
     # Filtering & Sorting logic
     if selected_filter == 'chronic':
