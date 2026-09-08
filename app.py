@@ -227,7 +227,7 @@ INDEX_HTML = """
                                     </form>
                                     
                                     <h6 class="fw-bold mt-4 mb-2">Existing Schools</h6>
-                                    <ul class="list-group list-group-flush small">
+                                    <ul class="list-group list-group-flush small" style="max-height: 200px; overflow-y: auto;">
                                         {% for sch in schools %}
                                         <li class="list-group-item d-flex justify-content-between align-items-center px-0">
                                             {{ sch.name }} <span class="badge bg-secondary rounded-pill">ID: {{ sch.id }}</span>
@@ -268,7 +268,7 @@ INDEX_HTML = """
                                     </form>
 
                                     <h6 class="fw-bold mt-4 mb-2">System Users</h6>
-                                    <div class="table-responsive">
+                                    <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
                                         <table class="table table-sm small mb-0">
                                             <thead>
                                                 <tr>
@@ -396,14 +396,14 @@ INDEX_HTML = """
                                 
                                 <td class="fw-semibold">
                                     {% if s.present_fte is not none %}
-                                        {{ "%.1f"|format(s.present_fte * 100) }}%
+                                        {{ "%.2f"|format(s.present_fte) }}%
                                     {% else %}
                                         N/A
                                     {% endif %}
                                 </td>
 
                                 <td>
-                                    {% if s.present_fte is not none and s.present_fte <= 0.90 %}
+                                    {% if s.present_fte is not none and s.present_fte <= 90.0 %}
                                         <span class="badge-chronic">Chronic</span>
                                     {% else %}
                                         <span class="badge-ontrack">On Track</span>
@@ -436,7 +436,9 @@ INDEX_HTML = """
             {% endif %}
         </div>
     </div>
-    <script href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- BOOTSTRAP JS FOR EXPANDABLE ACCORDION CONTROLS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 """
@@ -496,14 +498,14 @@ def index():
         )
 
     if selected_filter == 'chronic':
-        query = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 0.90)
+        query = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0)
     elif selected_filter == 'most-absences':
         query = query.order_by(StudentRecord.absences.desc())
     elif selected_filter == 'least-absences':
         query = query.order_by(StudentRecord.absences.asc())
 
     total_students = query.count()
-    at_risk_count = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 0.90).count()
+    at_risk_count = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0).count()
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
 
     per_page = 25
@@ -626,13 +628,13 @@ def upload_csv():
         except ValueError:
             tardies = 0
 
-        # Adjust FTE % 2 decimal places to the left
+        # Store percentage directly (e.g. 95.20)
         raw_fte = str(row.get('Present_FTE') or row.get('present_fte') or '').replace('%', '').strip()
         if raw_fte:
             try:
                 val = float(raw_fte)
-                # Divides whole-number percentage inputs by 100 to shift 2 decimal places left
-                present_fte = val / 100.0 if val > 1.0 else val
+                # If values are imported as 0.952, scale up to percentage scale 95.20
+                present_fte = val * 100.0 if val <= 1.0 else val
             except ValueError:
                 present_fte = None
         else:
