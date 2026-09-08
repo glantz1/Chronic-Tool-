@@ -29,24 +29,24 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# -----------------------------------------------------------------------------
-# Database Models
+# Database Models (Updated with explicit primary joins)
 # -----------------------------------------------------------------------------
 class School(db.Model):
     __tablename__ = 'school'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
     code = db.Column(db.String(20), nullable=False, unique=True)
-    users = db.relationship('User', backref='school', lazy=True)
-    students = db.relationship('StudentRecord', backref='school', lazy=True, cascade="all, delete-orphan")
+    
+    users = db.relationship('User', backref='school', lazy=True, foreign_keys='User.school_id')
+    students = db.relationship('StudentRecord', backref='school', lazy=True, cascade="all, delete-orphan", foreign_keys='StudentRecord.school_id')
 
 class User(db.Model):
     __tablename__ = 'user'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), nullable=False, unique=True)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='Staff')  # 'Admin' or 'Staff'
-    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=True)
+    role = db.Column(db.String(20), nullable=False, default='Staff')
+    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True)
 
 class StudentRecord(db.Model):
     __tablename__ = 'student_record'
@@ -54,17 +54,18 @@ class StudentRecord(db.Model):
     student_id = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     grade = db.Column(db.String(20), nullable=False, default='N/A')
-    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=False)
+    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=False)
     absences = db.Column(db.Float, default=0.0)
     tardies = db.Column(db.Integer, default=0)
     total_days = db.Column(db.Float, default=180.0)
     present_fte = db.Column(db.Float, nullable=True)
-    interventions = db.relationship('Intervention', backref='student', lazy=True, cascade="all, delete-orphan")
+    
+    interventions = db.relationship('Intervention', backref='student', lazy=True, cascade="all, delete-orphan", foreign_keys='Intervention.student_record_id')
 
 class Intervention(db.Model):
     __tablename__ = 'intervention'
     id = db.Column(db.Integer, primary_key=True)
-    student_record_id = db.Column(db.Integer, db.ForeignKey('student_records.id'), nullable=False)
+    student_record_id = db.Column(db.Integer, db.ForeignKey('student_record.id'), nullable=False)
     action_type = db.Column(db.String(50), nullable=False)
     notes = db.Column(db.Text, nullable=True)
     logged_by = db.Column(db.String(80), nullable=False)
