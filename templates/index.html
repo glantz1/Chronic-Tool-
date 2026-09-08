@@ -560,51 +560,50 @@
                 submitBtn.textContent = "Upload & Import";
             }
         }
+// ... (Keep existing JS functions: toggleModal, checkAuth, handleLogin, logout, loadSchools, handleAddSchool, loadDashboard, openInterventionModal, loadInterventionHistory, handleSaveIntervention, openUploadModal, handleUpload)
 
         async function openUsersModal() {
             toggleModal('usersModal');
             document.getElementById('addUserError').classList.add('hidden');
             
-            const schoolRes = await fetch('/schools');
-            const schoolData = await schoolRes.json();
-            const schoolSelect = document.getElementById('newUserSchool');
-            schoolSelect.innerHTML = '<option value="">No School Assigned (Global/Admin)</option>';
-            (schoolData.schools || []).forEach(s => {
-                schoolSelect.innerHTML += `<option value="${s.id}">${s.name}</option>`;
-           });
+            try {
+                const schoolRes = await fetch('/schools');
+                const schoolData = await schoolRes.json();
+                const schoolSelect = document.getElementById('newUserSchool');
+                schoolSelect.innerHTML = '<option value="">No School Assigned (Global/Admin)</option>';
+                (schoolData.schools || []).forEach(s => {
+                    schoolSelect.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+                });
 
-            await loadUsersList();
+                await loadUserList();
+            } catch (err) {
+                console.error("Failed to load user management details", err);
+            }
         }
 
-        async function loadUsersList() {
+        async function loadUserList() {
+            const res = await fetch('/admin/users');
+            if (!res.ok) return;
+            
+            const data = await res.json();
             const tbody = document.getElementById('userListTable');
-            tbody.innerHTML = '<tr><td colspan="4" class="p-3 text-slate-400">Loading users...</td></tr>';
+            tbody.innerHTML = '';
 
-            try {
-                const res = await fetch('/admin/users');
-                if (!res.ok) throw new Error('Failed to load users');
-                const users = await res.json();
-                tbody.innerHTML = '';
-
-                (users || []).forEach(u => {
-                    tbody.innerHTML += `
-                        <tr class="border-b border-slate-100 hover:bg-slate-50">
-                            <td class="p-2 font-medium text-slate-700">${u.email}</td>
-                            <td class="p-2"><span class="capitalize px-2 py-0.5 rounded text-[10px] font-semibold ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}">${u.role}</span></td>
-                            <td class="p-2 text-slate-500">${u.school_name || 'Global'}</td>
-                            <td class="p-2 text-right">
-                                ${u.email !== currentUser.email ? `
-                                    <button onclick="deleteUser('${u.id}')" class="text-red-500 hover:text-red-700 font-medium text-xs">
-                                        Delete
-                                    </button>
-                                ` : '<span class="text-slate-300 italic">You</span>'}
-                            </td>
-                        </tr>
-                    `;
-                });
-            } catch (err) {
-                tbody.innerHTML = '<tr><td colspan="4" class="p-3 text-red-500">Error loading users list.</td></tr>';
-            }
+            (data.users || []).forEach(user => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50";
+                tr.innerHTML = `
+                    <td class="p-2 font-medium">${user.email}</td>
+                    <td class="p-2 capitalize">${user.role}</td>
+                    <td class="p-2">${user.school_name || 'Global / All'}</td>
+                    <td class="p-2 text-right">
+                        <button onclick="deleteUser('${user.id}')" class="text-red-600 hover:text-red-800 text-xs font-semibold">
+                            <i class="fa-solid fa-trash mr-1"></i> Delete
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
         async function handleAddUser(e) {
@@ -627,9 +626,9 @@
             if (res.ok) {
                 document.getElementById('newUserEmail').value = '';
                 document.getElementById('newUserPassword').value = '';
-                await loadUsersList();
+                await loadUserList();
             } else {
-                errDiv.textContent = data.error || "Failed to create user.";
+                errDiv.textContent = data.error || "Failed to add user.";
                 errDiv.classList.remove('hidden');
             }
         }
@@ -639,7 +638,7 @@
 
             const res = await fetch(`/admin/users/${userId}`, { method: 'DELETE' });
             if (res.ok) {
-                await loadUsersList();
+                await loadUserList();
             } else {
                 const data = await res.json();
                 alert(data.error || "Failed to delete user.");
@@ -649,14 +648,15 @@
         function exportInterventions() {
             const schoolId = document.getElementById('schoolSelect').value;
             if (!schoolId) {
-                alert("Please select a school to export.");
+                alert("Please select a school first.");
                 return;
             }
             window.location.href = `/export/interventions?school_id=${schoolId}`;
         }
 
-        // Initial Auth Check on Page Load
-        checkAuth();
+        // Initialize application check on load
+        window.addEventListener('DOMContentLoaded', checkAuth);
     </script>
 </body>
 </html>
+        
