@@ -728,7 +728,7 @@ def upload_csv():
         return redirect(url_for('index'))
 
     try:
-        # Read file with UTF-8-sig to handle Byte Order Marks (BOM) from Excel CSV exports
+        # Handle UTF-8 with Byte Order Mark (BOM) from export tools
         content = file.stream.read().decode("utf-8-sig")
         stream = io.StringIO(content, newline=None)
         reader = csv.DictReader(stream)
@@ -736,86 +736,94 @@ def upload_csv():
         imported_count = 0
         skipped_count = 0
 
-        for row_idx, row in enumerate(reader, start=2):
-            # Clean non-printable characters and trim whitespace from keys and values
+        for row in reader:
+            # Clean and normalize header keys
             clean_row = {
                 (k.strip().lower() if k else ''): (v.strip() if v else '') 
                 for k, v in row.items()
             }
             
-            # Map student ID and name variations
+            # Map Student ID (Matches 'StudentNumber' or 'studentnumber')
             student_id = (
+                clean_row.get('studentnumber') or 
+                clean_row.get('student_number') or 
+                clean_row.get('studentnumber1') or 
                 clean_row.get('student_id') or 
-                clean_row.get('id') or 
-                clean_row.get('student id') or 
-                clean_row.get('sis_id')
+                clean_row.get('id')
             )
+
+            # Map Student Name (Matches 'studentName' or 'studentname')
             name = (
-                clean_row.get('name') or 
+                clean_row.get('studentname') or 
                 clean_row.get('student_name') or 
-                clean_row.get('student name') or 
+                clean_row.get('name') or 
                 clean_row.get('full_name')
             )
 
-            # Skip row if missing core identification
+            # Combined First & Last Name Fallback
+            if not name:
+                first = clean_row.get('first_name') or clean_row.get('firstname') or ''
+                last = clean_row.get('last_name') or clean_row.get('lastname') or ''
+                if first or last:
+                    name = f"{first} {last}".strip()
+
             if not student_id or not name:
                 skipped_count += 1
                 continue
 
-            grade = clean_row.get('grade', 'N/A')
-            
-            # Helper for safe numerical parsing
+            # Grade Level
+            grade = clean_row.get('grade') or clean_row.get('grade_level') or 'N/A'
+
+            # Helpers for parsing numbers
             def parse_float(val, default=0.0):
                 try:
-                    return float(val) if val != '' else default
-                except ValueError:
+                    return float(val.replace('%', '').strip()) if val != '' else default
+                except (ValueError, AttributeError):
                     return default
 
             def parse_int(val, default=0):
                 try:
                     return int(float(val)) if val != '' else default
-                except ValueError:
+                except (ValueError, AttributeError):
                     return default
 
-            absences = parse_float(clean_row.get('absences'))
-            unexcused = parse_int(clean_row.get('unexcused_absences') or clean_row.get('unexcused'))
+            # Map Absences & Membership Days from 'rptBI_AttendanceAnalysisDetail'
+            absences = parse_float(clean_row.get('currentschoolabsences7') or clean_row.get('absences'))
+            unexcused = parse_int(clean_row.get('unexcusedabsences') or clean_row.get('unexcused_absences'))
             tardies = parse_int(clean_row.get('tardies'))
-            total_days = parse_float(clean_row.get('total_days'), 180.0)
+            total_days = parse_float(clean_row.get('currentschoolmembershipdays11') or clean_row.get('total_days'), 180.0)
 
-            # Present FTE calculation
-            present_fte_str = clean_row.get('present_fte') or clean_row.get('fte')
+            # Map Present FTE % ('PresentFTE3' or 'presentfte3')
+            present_fte_str = clean_row.get('presentfte3') or clean_row.get('present_fte') or clean_row.get('presentfte_dist3')
             if present_fte_str:
                 present_fte = parse_float(present_fte_str)
             else:
                 present_fte = max(0.0, min(100.0, ((total_days - absences) / total_days) * 100)) if total_days > 0 else 0.0
 
-            # Upsert logic
-            record = StudentRecord.query.filter_by(student_id=student_id, school_id=school_id).first()
+            # Database Upsert
+            record = StudentRecord.query.filter_by(student_id=str(student_id), school_id=school_id).first()
             if not record:
-                record = StudentRecord(student_id=student_id, school_id=school_id)
+                record = StudentRecord(student_id=str(student_id), school_id=school_id)
                 db.session.add(record)
 
             record.name = name
-            record.grade = grade
+            record.grade = str(grade)
             record.absences = absences
             record.unexcused_absences = unexcused
             record.tardies = tardies
             record.total_days = total_days
             record.present_fte = present_fte
-            
+
             imported_count += 1
 
         db.session.commit()
 
         if imported_count == 0:
-            flash(
-                "No records were imported. Please ensure your CSV header contains 'student_id' (or 'id') and 'name'.", 
-                "error"
-            )
+            flash("No valid records could be matched from the file.", "error")
         else:
             msg = f"Successfully processed {imported_count} student records."
             if skipped_count > 0:
-                msg += f" ({skipped_count} invalid/empty rows skipped)"
+                msg += f" ({skipped_count} skipped)"
             flash(msg, "success")
 
     except Exception as e:
