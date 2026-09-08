@@ -614,43 +614,51 @@ def index():
 @app.route('/log_intervention/<int:student_id>', methods=['POST'])
 @login_required
 def log_intervention(student_id):
-    notes = request.form.get('notes', '').strip()
+    user = db.session.get(User, session['user_id'])
     student = db.session.get(StudentRecord, student_id)
 
     if not student:
         flash("Student record not found.", "error")
         return redirect(url_for('index'))
 
-    if notes:
-        intervention = Intervention(student_record_id=student.id, notes=notes)
-        db.session.add(intervention)
-        db.session.commit()
-        flash(f"Intervention logged for {student.name}.", "success")
-    else:
-        flash("Notes cannot be empty.", "error")
+    # Permission check: Non-admins can only log interventions for their school's students
+    if user.role != 'Admin' and student.school_id != user.school_id:
+        flash("Permission denied. You cannot modify records for this school.", "error")
+        return redirect(url_for('index'))
 
+    notes = request.form.get('notes', '').strip()
+    if not notes:
+        flash("Intervention notes cannot be empty.", "error")
+        return redirect(url_for('index'))
+
+    intervention = Intervention(student_record_id=student.id, notes=notes)
+    db.session.add(intervention)
+    db.session.commit()
+
+    flash(f"Intervention logged successfully for {student.name}.", "success")
     return redirect(url_for('index'))
 
-# ------------------------------------------------------------------------------
-# Admin & Data Import Routes
-# ------------------------------------------------------------------------------
-@app.route('/admin/add_school', methods=['POST'])
+@app.route('/add_school', methods=['POST'])
 @admin_required
 def add_school():
-    name = request.form.get('school_name', '').strip()
-    if name:
-        if School.query.filter_by(name=name).first():
-            flash(f"School '{name}' already exists.", "error")
-        else:
-            school = School(name=name)
-            db.session.add(school)
-            db.session.commit()
-            flash(f"School '{name}' added successfully.", "success")
-    else:
-        flash("School name cannot be empty.", "error")
+    school_name = request.form.get('school_name', '').strip()
+    if not school_name:
+        flash("School name is required.", "error")
+        return redirect(url_for('index'))
+
+    existing = School.query.filter_by(name=school_name).first()
+    if existing:
+        flash(f"School '{school_name}' already exists.", "error")
+        return redirect(url_for('index'))
+
+    school = School(name=school_name)
+    db.session.add(school)
+    db.session.commit()
+
+    flash(f"School '{school_name}' created successfully.", "success")
     return redirect(url_for('index'))
 
-@app.route('/admin/add_user', methods=['POST'])
+@app.route('/add_user', methods=['POST'])
 @admin_required
 def add_user():
     username = request.form.get('username', '').strip()
@@ -663,7 +671,7 @@ def add_user():
         return redirect(url_for('index'))
 
     if User.query.filter_by(username=username).first():
-        flash(f"Username '{username}' is already taken.", "error")
+        flash("Username already exists.", "error")
         return redirect(url_for('index'))
 
     user = User(
@@ -672,60 +680,63 @@ def add_user():
         school_id=int(school_id) if school_id else None
     )
     user.set_password(password)
+
     db.session.add(user)
     db.session.commit()
-    
+
     flash(f"User '{username}' created successfully.", "success")
     return redirect(url_for('index'))
 
-@app.route('/admin/delete_user/<int:user_id>', methods=['POST'])
+@app.route('/delete_user/<int:user_id>', methods=['POST'])
 @admin_required
 def delete_user(user_id):
-    user_to_delete = db.session.get(User, user_id)
-    current_user_id = session.get('user_id')
+    if user_id == session.get('user_id'):
+        flash("You cannot delete your own active account.", "error")
+        return redirect(url_for('index'))
 
-    if not user_to_delete:
+    user = db.session.get(User, user_id)
+    if not user:
         flash("User not found.", "error")
         return redirect(url_for('index'))
 
-    if user_to_delete.id == current_user_id:
-        flash("You cannot delete your own logged-in account.", "error")
-        return redirect(url_for('index'))
-
-    username = user_to_delete.username
-    db.session.delete(user_to_delete)
+    db.session.delete(user)
     db.session.commit()
 
-    flash(f"User '{username}' has been deleted.", "success")
+    flash(f"User '{user.username}' deleted.", "success")
     return redirect(url_for('index'))
 
 @app.route('/upload_csv', methods=['POST'])
 @login_required
 def upload_csv():
-    current_user = db.session.get(User, session['user_id'])
-    target_school_id = request.form.get('school_id') if current_user.role == 'Admin' else current_user.school_id
-
-    if not target_school_id:
-        flash("Please select a target school for CSV import.", "error")
-        return redirect(url_for('index'))
+    user = db.session.get(User, session['user_id'])
+    
+    if user.role == 'Admin':
+        school_id = request.form.get('school_id')
+        if not school_id:
+            flash("Please select a target school for the CSV upload.", "error")
+            return redirect(url_for('index'))
+        school_id = int(school_id)
+    else:
+        school_id = user.school_id
+        if not school_id:
+            flash("Your account is not associated with a school.", "error")
+            return redirect(url_for('index'))
 
     file = request.files.get('file')
     if not file or not file.filename.endswith('.csv'):
-        flash("Valid CSV file is required.", "error")
+        flash("Please upload a valid CSV file.", "error")
         return redirect(url_for('index'))
 
     try:
         stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
-        csv_reader = csv.DictReader(stream)
-        
+        reader = csv.DictReader(stream)
+
         imported_count = 0
-        for row in csv_reader:
-            # Flexible case-insensitive header mapping
+        for row in reader:
             clean_row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
             
             student_id = clean_row.get('student_id') or clean_row.get('id')
             name = clean_row.get('name') or clean_row.get('student_name')
-            
             if not student_id or not name:
                 continue
 
@@ -734,15 +745,16 @@ def upload_csv():
             unexcused = int(clean_row.get('unexcused_absences', clean_row.get('unexcused', 0)))
             tardies = int(clean_row.get('tardies', 0))
             total_days = float(clean_row.get('total_days', 180.0))
+            
+            present_fte = clean_row.get('present_fte')
+            if present_fte:
+                present_fte = float(present_fte)
+            else:
+                present_fte = max(0.0, min(100.0, ((total_days - absences) / total_days) * 100)) if total_days > 0 else 0.0
 
-            # Automatically compute present_fte percentage
-            present_days = max(total_days - absences, 0.0)
-            present_fte = (present_days / total_days * 100.0) if total_days > 0 else 0.0
-
-            # Update existing or create new record
-            record = StudentRecord.query.filter_by(student_id=student_id, school_id=target_school_id).first()
+            record = StudentRecord.query.filter_by(student_id=student_id, school_id=school_id).first()
             if not record:
-                record = StudentRecord(student_id=student_id, school_id=target_school_id)
+                record = StudentRecord(student_id=student_id, school_id=school_id)
                 db.session.add(record)
 
             record.name = name
@@ -752,7 +764,7 @@ def upload_csv():
             record.tardies = tardies
             record.total_days = total_days
             record.present_fte = present_fte
-
+            
             imported_count += 1
 
         db.session.commit()
@@ -763,23 +775,14 @@ def upload_csv():
 
     return redirect(url_for('index'))
 
-# ------------------------------------------------------------------------------
-# CLI Initialization Command
-# ------------------------------------------------------------------------------
-@app.cli.command('init-db')
-def init_db():
-    """Seeds the database with tables and default Admin credentials."""
-    db.create_all()
-    if not User.query.filter_by(username='admin').first():
-        admin = User(username='admin', role='Admin')
-        admin.set_password('admin123')
-        db.session.add(admin)
-        db.session.commit()
-        print("Database initialized! Default admin account: admin / admin123")
-    else:
-        print("Database already initialized.")
-
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        if not User.query.filter_by(username='admin').first():
+            default_admin = User(username='admin', role='Admin')
+            default_admin.set_password('admin123')
+            db.session.add(default_admin)
+            db.session.commit()
+            print("Default admin created (Username: admin, Password: admin123)")
+
     app.run(debug=True)
