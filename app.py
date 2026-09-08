@@ -6,6 +6,7 @@ from datetime import datetime
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import joinedload, subqueryload
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -148,7 +149,7 @@ INDEX_HTML = """
         th, td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
         th { background: #f8fafc; color: var(--muted); }
         
-        /* Frontend Render Optimization */
+        /* Modern CSS rendering optimization for large tables */
         .roster-row {
             content-visibility: auto;
             contain-intrinsic-size: 0 45px;
@@ -158,7 +159,7 @@ INDEX_HTML = """
         .badge-danger { background: var(--danger-bg); color: var(--danger-text); }
         .badge-success { background: var(--success-bg); color: var(--success-text); }
         .alert { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.875rem; }
-        .alert-success { background: var(--success-bg); color: var(--success-text); border: 1px solid #bbf7d0; }
+        .alert-success, .alert-info { background: var(--success-bg); color: var(--success-text); border: 1px solid #bbf7d0; }
         .alert-error { background: var(--danger-bg); color: var(--danger-text); border: 1px solid #fecaca; }
 
         .pagination-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); flex-wrap: wrap; gap: 1rem; }
@@ -249,7 +250,7 @@ INDEX_HTML = """
                 <h3 class="card-title" style="margin-bottom:1rem;">👤 Add User / Staff Account</h3>
                 <form method="POST" action="/add_user" style="display:flex; flex-direction:column; gap:0.75rem;">
                     <div class="form-row">
-                        <input type="text" name="username" placeholder="Username" required style="flex:1;">
+                        <input type="text" name="username" placeholder="Username (email or name)" required style="flex:1;">
                         <input type="password" name="password" placeholder="Password" required style="flex:1;">
                     </div>
                     <div class="form-row">
@@ -503,7 +504,10 @@ def init_db():
         )
         db.session.add(admin)
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
 
 # --- Application Startup Execution ---
 with app.app_context():
@@ -514,7 +518,7 @@ with app.app_context():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
+        username = request.form.get('username', '').strip()
         password = request.form.get('password')
         user = User.query.filter_by(username=username).first()
 
@@ -541,17 +545,23 @@ def index():
     selected_filter = request.args.get('filter', 'chronic')
     selected_grade = request.args.get('grade', 'all')
     search_query = request.args.get('search', '').strip()
-    page = request.args.get('page', 1, type=int)
-    per_page = 50  # Limits DOM load to prevent browser freeze
+    
+    # Safe Integer Conversion for Page Parameter
+    try:
+        page = int(request.args.get('page', 1))
+    except (ValueError, TypeError):
+        page = 1
+        
+    per_page = 50  # Display 50 students per page to prevent DOM slowdown
 
-    # Optimized Query with Eager Loading (Fixes N+1 Bottleneck)
+    # Eager Load Relationships to prevent N+1 queries
     base_query = StudentRecord.query.options(
         joinedload(StudentRecord.school),
         subqueryload(StudentRecord.interventions)
     )
 
     if user.role == 'Admin':
-        if selected_school_id != 'all':
+        if selected_school_id != 'all' and selected_school_id:
             try:
                 s_id = int(selected_school_id)
                 records = base_query.filter_by(school_id=s_id).all()
@@ -573,15 +583,16 @@ def index():
     grades_set = set()
 
     for r in records:
-        tardy_absences = r.tardies // TARDY_CONVERSION_FACTOR
-        adjusted_absences = r.absences + tardy_absences
+        tardy_absences = (r.tardies or 0) // TARDY_CONVERSION_FACTOR
+        adjusted_absences = (r.absences or 0.0) + tardy_absences
 
         if r.present_fte is not None:
             val = r.present_fte
             fte_ratio = val / 100.0 if val > 1.0 else val
             present_fte_pct = fte_ratio * 100.0
         else:
-            calc_abs_rate = (adjusted_absences / r.total_days) if r.total_days > 0 else 0
+            total_d = r.total_days if (r.total_days and r.total_days > 0) else 180
+            calc_abs_rate = (adjusted_absences / total_d)
             fte_ratio = max(0.0, 1.0 - calc_abs_rate)
             present_fte_pct = fte_ratio * 100.0
 
@@ -597,8 +608,8 @@ def index():
             'action_type': item.action_type,
             'notes': item.notes,
             'logged_by': item.logged_by,
-            'timestamp': item.timestamp.strftime('%b %d, %Y %H:%M')
-        } for item in r.interventions]
+            'timestamp': item.timestamp.strftime('%b %d, %Y %H:%M') if item.timestamp else ''
+        } for item in (r.interventions or [])]
 
         all_parsed_students.append({
             'id': r.id,
@@ -606,8 +617,8 @@ def index():
             'name': r.name,
             'grade': r.grade or 'N/A',
             'school_name': r.school.name if r.school else 'Unassigned',
-            'absences': r.absences,
-            'tardies': r.tardies,
+            'absences': r.absences or 0,
+            'tardies': r.tardies or 0,
             'adjusted_absences': adjusted_absences,
             'present_fte_pct': present_fte_pct,
             'is_chronic': is_chronic,
@@ -616,32 +627,29 @@ def index():
 
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
 
-    # Server-Side Filtering
+    # Filtering Logic
     filtered_students = []
     search_lower = search_query.lower()
 
     for s in all_parsed_students:
-        # Filter Status
         if selected_filter == 'chronic' and not s['is_chronic']:
             continue
         
-        # Filter Grade
         if selected_grade != 'all' and s['grade'] != selected_grade:
             continue
 
-        # Search Query
         if search_query and (search_lower not in s['name'].lower() and search_lower not in s['student_id'].lower()):
             continue
 
         filtered_students.append(s)
 
-    # Server-Side Sorting
+    # Sorting Logic
     if selected_filter == 'most-absences':
         filtered_students.sort(key=lambda x: x['adjusted_absences'], reverse=True)
     elif selected_filter == 'least-absences':
         filtered_students.sort(key=lambda x: x['adjusted_absences'])
 
-    # Server-Side Pagination
+    # Server-Side Pagination Processing
     display_count = len(filtered_students)
     total_pages = math.ceil(display_count / per_page) if display_count > 0 else 1
     page = max(1, min(page, total_pages))
@@ -675,14 +683,22 @@ def add_school():
     if not user or user.role != 'Admin':
         return redirect(url_for('index'))
 
-    name = request.form.get('name')
-    code = request.form.get('code')
+    name = request.form.get('name', '').strip()
+    code = request.form.get('code', '').strip().upper()
 
-    if name and code:
-        school = School(name=name, code=code)
+    if not name or not code:
+        flash('School name and code are required.', 'error')
+        return redirect(url_for('index'))
+
+    school = School(name=name, code=code)
+    try:
         db.session.add(school)
         db.session.commit()
         flash(f'School "{name}" created successfully.', 'success')
+    except IntegrityError:
+        db.session.rollback()
+        flash(f'A school with name "{name}" or code "{code}" already exists.', 'error')
+
     return redirect(url_for('index'))
 
 @app.route('/add_user', methods=['POST'])
@@ -691,22 +707,37 @@ def add_user():
     if not user or user.role != 'Admin':
         return redirect(url_for('index'))
 
-    username = request.form.get('username')
+    username = request.form.get('username', '').strip()
     password = request.form.get('password')
     role = request.form.get('role', 'Staff')
     school_id = request.form.get('school_id')
 
-    if username and password:
-        school_id = int(school_id) if school_id else None
-        new_user = User(
-            username=username,
-            password_hash=generate_password_hash(password),
-            role=role,
-            school_id=school_id
-        )
+    if not username or not password:
+        flash('Username and password are required.', 'error')
+        return redirect(url_for('index'))
+
+    # Check for existing user before database commit
+    existing_user = User.query.filter_by(username=username).first()
+    if existing_user:
+        flash(f'User "{username}" already exists.', 'error')
+        return redirect(url_for('index'))
+
+    school_id = int(school_id) if school_id else None
+    new_user = User(
+        username=username,
+        password_hash=generate_password_hash(password),
+        role=role,
+        school_id=school_id
+    )
+
+    try:
         db.session.add(new_user)
         db.session.commit()
-        flash(f'User "{username}" created.', 'success')
+        flash(f'User "{username}" created successfully.', 'success')
+    except IntegrityError:
+        db.session.rollback()
+        flash(f'Failed to create user. Username "{username}" is already taken.', 'error')
+
     return redirect(url_for('index'))
 
 @app.route('/add_student', methods=['POST'])
@@ -715,23 +746,27 @@ def add_student():
     if not user:
         return redirect(url_for('login'))
 
-    student_id = request.form.get('student_id')
-    name = request.form.get('name')
-    grade = request.form.get('grade', 'N/A')
-    absences = float(request.form.get('absences', 0))
-    tardies = int(request.form.get('tardies', 0))
+    student_id = request.form.get('student_id', '').strip()
+    name = request.form.get('name', '').strip()
+    grade = request.form.get('grade', 'N/A').strip()
+    
+    try:
+        absences = float(request.form.get('absences', 0))
+        tardies = int(request.form.get('tardies', 0))
+    except ValueError:
+        absences, tardies = 0.0, 0
 
     target_school_id = request.form.get('school_id') if user.role == 'Admin' else user.school_id
     target_school_id = int(target_school_id) if target_school_id else None
 
-    # Overwrite attendance if student exists; preserve interventions
+    # Update student attendance in place if student ID exists
     existing = StudentRecord.query.filter_by(student_id=student_id, school_id=target_school_id).first()
     if existing:
         existing.name = name
         existing.grade = grade
         existing.absences = absences
         existing.tardies = tardies
-        flash(f'Attendance data for {name} updated.', 'success')
+        flash(f'Attendance record for {name} updated.', 'success')
     else:
         student = StudentRecord(
             student_id=student_id,
@@ -755,7 +790,7 @@ def upload_csv():
 
     target_school_id = request.form.get('school_id') if user.role == 'Admin' else user.school_id
     if not target_school_id:
-        flash('Target school selection required for import.', 'error')
+        flash('Target school selection required for CSV import.', 'error')
         return redirect(url_for('index'))
 
     target_school_id = int(target_school_id)
@@ -768,7 +803,7 @@ def upload_csv():
     stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
     csv_reader = csv.DictReader(stream)
 
-    # Fetch existing students for this school so metrics overwrite without deleting interventions
+    # Fetch existing students into memory map to avoid duplicate key issues
     existing_students = {
         s.student_id: s 
         for s in StudentRecord.query.filter_by(school_id=target_school_id).all()
@@ -781,14 +816,19 @@ def upload_csv():
         s_id = row.get('Student ID') or row.get('ID') or row.get('student_id')
         name = row.get('Name') or row.get('Student Name') or row.get('name')
         grade = row.get('Grade') or row.get('grade') or 'N/A'
-        absences = float(row.get('Absences') or row.get('absences') or 0.0)
-        tardies = int(row.get('Tardies') or row.get('tardies') or 0)
+        
+        try:
+            absences = float(row.get('Absences') or row.get('absences') or 0.0)
+            tardies = int(row.get('Tardies') or row.get('tardies') or 0)
+        except ValueError:
+            absences, tardies = 0.0, 0
+
         present_fte = row.get('PresentFTE') or row.get('present_fte')
 
         if s_id and name:
             s_id = str(s_id).strip()
             if s_id in existing_students:
-                # Overwrite attendance data on existing record (Preserves Interventions)
+                # Update attendance metrics in place (Preserves Interventions)
                 student = existing_students[s_id]
                 student.name = name
                 student.grade = grade
@@ -797,7 +837,7 @@ def upload_csv():
                 student.present_fte = float(present_fte) if present_fte else None
                 updated_count += 1
             else:
-                # Insert brand new student
+                # Add new student record
                 new_student = StudentRecord(
                     student_id=s_id,
                     name=name,
@@ -811,7 +851,7 @@ def upload_csv():
                 created_count += 1
 
     db.session.commit()
-    flash(f'Import complete: Overwrote attendance for {updated_count} students, added {created_count} new students. All interventions & accounts preserved.', 'success')
+    flash(f'Import complete: Updated attendance for {updated_count} students, added {created_count} new students.', 'success')
     return redirect(url_for('index'))
 
 @app.route('/log_intervention', methods=['POST'])
