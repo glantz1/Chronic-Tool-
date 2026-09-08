@@ -330,6 +330,8 @@ INDEX_HTML = """
                             <option value="chronic" {% if selected_filter == 'chronic' %}selected{% endif %}>Chronic Only (FTE ≤ 90%)</option>
                             <option value="most-absences" {% if selected_filter == 'most-absences' %}selected{% endif %}>Most Absences</option>
                             <option value="least-absences" {% if selected_filter == 'least-absences' %}selected{% endif %}>Least Absences</option>
+                            <option value="highest-fte" {% if selected_filter == 'highest-fte' %}selected{% endif %}>Highest Present FTE%</option>
+                            <option value="lowest-fte" {% if selected_filter == 'lowest-fte' %}selected{% endif %}>Lowest Present FTE%</option>
                         </select>
                     </div>
 
