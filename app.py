@@ -49,6 +49,7 @@ class StudentRecord(db.Model):
     grade = db.Column(db.String(20), nullable=False, default='N/A')
     school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=False)
     absences = db.Column(db.Float, default=0.0)
+    unexcused_absences = db.Column(db.Integer, default=0)
     tardies = db.Column(db.Integer, default=0)
     total_days = db.Column(db.Float, default=180.0)
     present_fte = db.Column(db.Float, nullable=True)
@@ -552,6 +553,8 @@ def index():
         query = query.order_by(StudentRecord.absences.desc())
     elif selected_filter == 'least-absences':
         query = query.order_by(StudentRecord.absences.asc())
+    elif selected_filter == 'most-unexcused':  # <--- ADD THIS
+        query = query.order_by(StudentRecord.unexcused_absences.desc())    
     elif selected_filter == 'highest-fte':
         query = query.order_by(StudentRecord.present_fte.desc())
     elif selected_filter == 'lowest-fte':
