@@ -51,7 +51,7 @@ class StudentRecord(db.Model):
     absences = db.Column(db.Float, default=0.0)
     tardies = db.Column(db.Integer, default=0)
     total_days = db.Column(db.Float, default=180.0)
-    present_fte = db.Column(db.Float, nullable=True)  # Direct value from CSV
+    present_fte = db.Column(db.Float, nullable=True)
 
     interventions = db.relationship(
         'Intervention', 
@@ -77,6 +77,19 @@ def login_required(f):
         if 'user_id' not in session:
             flash("Please log in to access this page.", "error")
             return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash("Please log in to access this page.", "error")
+            return redirect(url_for('login'))
+        user = User.query.get(session['user_id'])
+        if not user or user.role != 'Admin':
+            flash("Access denied. Admin privileges required.", "error")
+            return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -189,6 +202,100 @@ INDEX_HTML = """
                 </div>
             </div>
         </div>
+
+        {% if current_user.role == 'Admin' %}
+        <!-- ADMIN MANAGEMENT SECTION -->
+        <div class="accordion mb-4" id="adminAccordion">
+            <div class="accordion-item shadow-sm">
+                <h2 class="accordion-header" id="headingAdmin">
+                    <button class="accordion-button collapsed bg-light fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAdmin">
+                        ⚙️ Admin Controls: Manage Schools & Users
+                    </button>
+                </h2>
+                <div id="collapseAdmin" class="accordion-collapse collapse" data-bs-parent="#adminAccordion">
+                    <div class="accordion-body">
+                        <div class="row g-4">
+                            <!-- Add School Form -->
+                            <div class="col-md-5">
+                                <div class="border rounded p-3 bg-white">
+                                    <h6 class="fw-bold mb-3">Add New School</h6>
+                                    <form method="POST" action="{{ url_for('add_school') }}">
+                                        <div class="mb-3">
+                                            <input type="text" name="school_name" class="form-control" placeholder="School Name" required>
+                                        </div>
+                                        <button type="submit" class="btn btn-primary btn-sm w-100">Create School</button>
+                                    </form>
+                                    
+                                    <h6 class="fw-bold mt-4 mb-2">Existing Schools</h6>
+                                    <ul class="list-group list-group-flush small">
+                                        {% for sch in schools %}
+                                        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                            {{ sch.name }} <span class="badge bg-secondary rounded-pill">ID: {{ sch.id }}</span>
+                                        </li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <!-- Add User Form -->
+                            <div class="col-md-7">
+                                <div class="border rounded p-3 bg-white">
+                                    <h6 class="fw-bold mb-3">Create User Account</h6>
+                                    <form method="POST" action="{{ url_for('add_user') }}" class="row g-2">
+                                        <div class="col-md-6">
+                                            <input type="text" name="username" class="form-control" placeholder="Username" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <input type="password" name="password" class="form-control" placeholder="Password" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <select name="role" class="form-select">
+                                                <option value="User">User</option>
+                                                <option value="Admin">Admin</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <select name="school_id" class="form-select">
+                                                <option value="">No Assigned School (All)</option>
+                                                {% for sch in schools %}
+                                                <option value="{{ sch.id }}">{{ sch.name }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                        <div class="col-12 mt-3">
+                                            <button type="submit" class="btn btn-success btn-sm w-100">Create User</button>
+                                        </div>
+                                    </form>
+
+                                    <h6 class="fw-bold mt-4 mb-2">System Users</h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm small mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Username</th>
+                                                    <th>Role</th>
+                                                    <th>Assigned School</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for u in all_users %}
+                                                <tr>
+                                                    <td>{{ u.username }}</td>
+                                                    <td><span class="badge bg-info text-dark">{{ u.role }}</span></td>
+                                                    <td>{{ u.school.name if u.school else 'All Schools' }}</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- Filters & Upload Form -->
         <div class="card shadow-sm mb-4">
@@ -329,6 +436,7 @@ INDEX_HTML = """
             {% endif %}
         </div>
     </div>
+    <script href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 """
@@ -403,6 +511,7 @@ def index():
     students = query.offset((page - 1) * per_page).limit(per_page).all()
 
     schools = School.query.all()
+    all_users = User.query.all() if user.role == 'Admin' else []
     available_grades = [g[0] for g in db.session.query(StudentRecord.grade).distinct().all() if g[0]]
 
     active_school_name = "All Schools"
@@ -416,6 +525,7 @@ def index():
         current_user=user,
         students=students,
         schools=schools,
+        all_users=all_users,
         available_grades=sorted(available_grades),
         total_students=total_students,
         at_risk_count=at_risk_count,
@@ -431,6 +541,56 @@ def index():
         str=str
     )
 
+# ------------------------------------------------------------------------------
+# Admin Management Routes
+# ------------------------------------------------------------------------------
+@app.route('/admin/add_school', methods=['POST'])
+@admin_required
+def add_school():
+    name = request.form.get('school_name', '').strip()
+    if name:
+        if School.query.filter_by(name=name).first():
+            flash(f"School '{name}' already exists.", "error")
+        else:
+            school = School(name=name)
+            db.session.add(school)
+            db.session.commit()
+            flash(f"School '{name}' added successfully.", "success")
+    else:
+        flash("School name cannot be empty.", "error")
+    return redirect(url_for('index'))
+
+@app.route('/admin/add_user', methods=['POST'])
+@admin_required
+def add_user():
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '').strip()
+    role = request.form.get('role', 'User')
+    school_id = request.form.get('school_id')
+
+    if not username or not password:
+        flash("Username and password are required.", "error")
+        return redirect(url_for('index'))
+
+    if User.query.filter_by(username=username).first():
+        flash(f"Username '{username}' is already taken.", "error")
+        return redirect(url_for('index'))
+
+    new_user = User(
+        username=username,
+        role=role,
+        school_id=int(school_id) if school_id else None
+    )
+    new_user.set_password(password)
+    db.session.add(new_user)
+    db.session.commit()
+
+    flash(f"User '{username}' created successfully.", "success")
+    return redirect(url_for('index'))
+
+# ------------------------------------------------------------------------------
+# CSV Data Import Route
+# ------------------------------------------------------------------------------
 @app.route('/upload_csv', methods=['POST'])
 @login_required
 def upload_csv():
@@ -440,7 +600,7 @@ def upload_csv():
     school_id = user.school_id if user.role != 'Admin' else request.form.get('school_id', user.school_id)
 
     if not school_id:
-        flash("Please select a school before uploading records.", "error")
+        flash("Please select a target school for CSV import.", "error")
         return redirect(url_for('index'))
 
     if not file or not file.filename.endswith('.csv'):
@@ -466,10 +626,12 @@ def upload_csv():
         except ValueError:
             tardies = 0
 
+        # Adjust FTE % 2 decimal places to the left
         raw_fte = str(row.get('Present_FTE') or row.get('present_fte') or '').replace('%', '').strip()
         if raw_fte:
             try:
                 val = float(raw_fte)
+                # Divides whole-number percentage inputs by 100 to shift 2 decimal places left
                 present_fte = val / 100.0 if val > 1.0 else val
             except ValueError:
                 present_fte = None
@@ -513,7 +675,6 @@ def init_db():
         db.session.add_all([admin, user])
         db.session.commit()
 
-# INITIALIZATION HOOK FOR PRODUCTION WSGI (Gunicorn / Docker)
 with app.app_context():
     init_db()
 
