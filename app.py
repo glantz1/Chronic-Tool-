@@ -527,13 +527,7 @@ def index():
     query = StudentRecord.query
 
     if user.role != 'Admin':
-        if user.school_id:
-            query = query.filter_by(school_id=user.school_id)
-            selected_school_id = str(user.school_id)
-    elif selected_school_id != 'all':
-        query = query.filter_by(school_id=int(selected_school_id))
-
-   if selected_grade != 'all':
+    if selected_grade != 'all':
         query = query.filter_by(grade=selected_grade)
 
     if search_query:
@@ -555,9 +549,6 @@ def index():
         query = query.order_by(StudentRecord.present_fte.desc())
     elif selected_filter == 'lowest-fte':
         query = query.order_by(StudentRecord.present_fte.asc())
-
-    total_students = query.count()
-    at_risk_count = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0).count()
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
 
     per_page = 100
