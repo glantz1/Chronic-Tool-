@@ -549,12 +549,11 @@ def index():
     elif selected_filter == 'least-absences':
         query = query.order_by(StudentRecord.absences.asc())
     elif selected_filter == 'highest-fte':
-        query = query.order_by(StudentRecord.present_fte.desc())
-    elif selected_filter == 'lowest-fte':
-        query = query.order_by(StudentRecord.present_fte.asc())
+ # Count total students and at-risk/chronic students before calculating the rate
+    total_students = query.count()
+    at_risk_count = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0).count()
 
-    chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
-    per_page = 100
+    chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0  
     total_pages = math.ceil(total_students / per_page) if total_students > 0 else 1
     students = query.offset((page - 1) * per_page).limit(per_page).all()
 
