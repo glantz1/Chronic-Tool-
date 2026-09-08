@@ -571,14 +571,15 @@
                 const data = await res.json();
 
                 if (res.ok) {
+                    alert(data.message || "CSV data successfully uploaded and imported!");
                     toggleModal('uploadModal');
-                    loadDashboard();
+                    await loadDashboard();
                 } else {
-                    errorDiv.textContent = data.error || "Upload failed.";
+                    errorDiv.textContent = data.error || "Failed to process CSV file.";
                     errorDiv.classList.remove('hidden');
                 }
             } catch (err) {
-                errorDiv.textContent = "Network error while uploading.";
+                errorDiv.textContent = "An unexpected error occurred during upload.";
                 errorDiv.classList.remove('hidden');
             } finally {
                 submitBtn.disabled = false;
@@ -588,49 +589,49 @@
 
         async function openUsersModal() {
             toggleModal('usersModal');
-            document.getElementById('addUserError').classList.add('hidden');
-            
-            try {
-                const schoolRes = await fetch('/schools');
-                const schoolData = await schoolRes.json();
-                const schoolSelect = document.getElementById('newUserSchool');
-                schoolSelect.innerHTML = '<option value="">No School Assigned (Global/Admin)</option>';
-                (schoolData.schools || []).forEach(s => {
-                    schoolSelect.innerHTML += `<option value="${s.id}">${s.name}</option>`;
-                });
+            await loadUsers();
+            await populateSchoolDropdownForUser();
+        }
 
-                await loadUserList();
-            } catch (err) {
-                console.error("Failed to load user management details", err);
+        async function loadUsers() {
+            const userTable = document.getElementById('userListTable');
+            userTable.innerHTML = '<tr><td colspan="4" class="p-2 text-slate-400">Loading users...</td></tr>';
+
+            try {
+                const res = await fetch('/admin/users');
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                userTable.innerHTML = '';
+
+                (data.users || []).forEach(u => {
+                    const row = document.createElement('tr');
+                    row.className = "hover:bg-slate-50";
+                    row.innerHTML = `
+                        <td class="p-2 font-medium text-slate-800">${u.email}</td>
+                        <td class="p-2 capitalize text-slate-600">${u.role}</td>
+                        <td class="p-2 text-slate-600">${u.school_name || 'N/A'}</td>
+                        <td class="p-2 text-right">
+                            <button onclick="deleteUser(${u.id})" class="text-red-600 hover:text-red-800 font-medium">Delete</button>
+                        </td>
+                    `;
+                    userTable.appendChild(row);
+                });
+            } catch (e) {
+                userTable.innerHTML = '<tr><td colspan="4" class="p-2 text-red-500">Error loading users.</td></tr>';
             }
         }
 
-        async function loadUserList() {
+        async function populateSchoolDropdownForUser() {
             try {
-                const res = await fetch('/admin/users');
-                if (!res.ok) return;
-                
+                const res = await fetch('/schools');
                 const data = await res.json();
-                const tbody = document.getElementById('userListTable');
-                tbody.innerHTML = '';
-
-                (data.users || []).forEach(user => {
-                    const tr = document.createElement('tr');
-                    tr.className = "hover:bg-slate-50 border-b";
-                    tr.innerHTML = `
-                        <td class="p-2 font-medium text-slate-700">${user.email}</td>
-                        <td class="p-2 capitalize text-slate-600">${user.role}</td>
-                        <td class="p-2 text-slate-600">${user.school_name || 'Global / All'}</td>
-                        <td class="p-2 text-right">
-                            <button onclick="deleteUser('${user.id}')" class="text-red-600 hover:text-red-800 text-xs font-semibold">
-                                <i class="fa-solid fa-trash mr-1"></i> Delete
-                            </button>
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
+                const select = document.getElementById('newUserSchool');
+                select.innerHTML = '<option value="">No School Assigned (Admin Only)</option>';
+                (data.schools || []).forEach(s => {
+                    select.innerHTML += `<option value="${s.id}">${s.name}</option>`;
                 });
-            } catch(e) {
-                console.error("Could not fetch user list", e);
+            } catch (e) {
+                console.error("Could not populate user school options:", e);
             }
         }
 
@@ -654,7 +655,7 @@
             if (res.ok) {
                 document.getElementById('newUserEmail').value = '';
                 document.getElementById('newUserPassword').value = '';
-                await loadUserList();
+                await loadUsers();
             } else {
                 errDiv.textContent = data.error || "Failed to add user.";
                 errDiv.classList.remove('hidden');
@@ -666,24 +667,23 @@
 
             const res = await fetch(`/admin/users/${userId}`, { method: 'DELETE' });
             if (res.ok) {
-                await loadUserList();
+                await loadUsers();
             } else {
-                const data = await res.json();
-                alert(data.error || "Failed to delete user.");
+                alert("Failed to delete user.");
             }
         }
 
         function exportInterventions() {
             const schoolId = document.getElementById('schoolSelect').value;
             if (!schoolId) {
-                alert("Please select a school first.");
+                alert("Please select a school to export data.");
                 return;
             }
             window.location.href = `/export/interventions?school_id=${schoolId}`;
         }
 
-        // Initialize application check on load
-        window.addEventListener('DOMContentLoaded', checkAuth);
+        // Initialize application on startup
+        document.addEventListener('DOMContentLoaded', checkAuth);
     </script>
 </body>
 </html>
