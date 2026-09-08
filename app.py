@@ -723,35 +723,73 @@ def upload_csv():
             return redirect(url_for('index'))
 
     file = request.files.get('file')
-    if not file or not file.filename.endswith('.csv'):
+    if not file or not file.filename.lower().endswith('.csv'):
         flash("Please upload a valid CSV file.", "error")
         return redirect(url_for('index'))
 
     try:
-        stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
+        # Read file with UTF-8-sig to handle Byte Order Marks (BOM) from Excel CSV exports
+        content = file.stream.read().decode("utf-8-sig")
+        stream = io.StringIO(content, newline=None)
         reader = csv.DictReader(stream)
 
         imported_count = 0
-        for row in reader:
-            clean_row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
+        skipped_count = 0
+
+        for row_idx, row in enumerate(reader, start=2):
+            # Clean non-printable characters and trim whitespace from keys and values
+            clean_row = {
+                (k.strip().lower() if k else ''): (v.strip() if v else '') 
+                for k, v in row.items()
+            }
             
-            student_id = clean_row.get('student_id') or clean_row.get('id')
-            name = clean_row.get('name') or clean_row.get('student_name')
+            # Map student ID and name variations
+            student_id = (
+                clean_row.get('student_id') or 
+                clean_row.get('id') or 
+                clean_row.get('student id') or 
+                clean_row.get('sis_id')
+            )
+            name = (
+                clean_row.get('name') or 
+                clean_row.get('student_name') or 
+                clean_row.get('student name') or 
+                clean_row.get('full_name')
+            )
+
+            # Skip row if missing core identification
             if not student_id or not name:
+                skipped_count += 1
                 continue
 
             grade = clean_row.get('grade', 'N/A')
-            absences = float(clean_row.get('absences', 0.0))
-            unexcused = int(clean_row.get('unexcused_absences', clean_row.get('unexcused', 0)))
-            tardies = int(clean_row.get('tardies', 0))
-            total_days = float(clean_row.get('total_days', 180.0))
             
-            present_fte = clean_row.get('present_fte')
-            if present_fte:
-                present_fte = float(present_fte)
+            # Helper for safe numerical parsing
+            def parse_float(val, default=0.0):
+                try:
+                    return float(val) if val != '' else default
+                except ValueError:
+                    return default
+
+            def parse_int(val, default=0):
+                try:
+                    return int(float(val)) if val != '' else default
+                except ValueError:
+                    return default
+
+            absences = parse_float(clean_row.get('absences'))
+            unexcused = parse_int(clean_row.get('unexcused_absences') or clean_row.get('unexcused'))
+            tardies = parse_int(clean_row.get('tardies'))
+            total_days = parse_float(clean_row.get('total_days'), 180.0)
+
+            # Present FTE calculation
+            present_fte_str = clean_row.get('present_fte') or clean_row.get('fte')
+            if present_fte_str:
+                present_fte = parse_float(present_fte_str)
             else:
                 present_fte = max(0.0, min(100.0, ((total_days - absences) / total_days) * 100)) if total_days > 0 else 0.0
 
+            # Upsert logic
             record = StudentRecord.query.filter_by(student_id=student_id, school_id=school_id).first()
             if not record:
                 record = StudentRecord(student_id=student_id, school_id=school_id)
@@ -768,7 +806,18 @@ def upload_csv():
             imported_count += 1
 
         db.session.commit()
-        flash(f"Successfully processed {imported_count} student records.", "success")
+
+        if imported_count == 0:
+            flash(
+                "No records were imported. Please ensure your CSV header contains 'student_id' (or 'id') and 'name'.", 
+                "error"
+            )
+        else:
+            msg = f"Successfully processed {imported_count} student records."
+            if skipped_count > 0:
+                msg += f" ({skipped_count} invalid/empty rows skipped)"
+            flash(msg, "success")
+
     except Exception as e:
         db.session.rollback()
         flash(f"Error parsing CSV file: {str(e)}", "error")
