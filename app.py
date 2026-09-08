@@ -533,7 +533,7 @@ def index():
     elif selected_school_id != 'all':
         query = query.filter_by(school_id=int(selected_school_id))
 
-    if selected_grade != 'all':
+   if selected_grade != 'all':
         query = query.filter_by(grade=selected_grade)
 
     if search_query:
@@ -542,19 +542,19 @@ def index():
             (StudentRecord.student_id.ilike(f"%{search_query}%"))
         )
 
-  selected_filter = request.args.get('filter', 'all')
+    selected_filter = request.args.get('filter', 'all')
 
-# Filtering & Sorting logic
-if selected_filter == 'chronic':
-    query = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0)
-elif selected_filter == 'most-absences':
-    query = query.order_by(StudentRecord.absences.desc())
-elif selected_filter == 'least-absences':
-    query = query.order_by(StudentRecord.absences.asc())
-elif selected_filter == 'highest-fte':
-    query = query.order_by(StudentRecord.present_fte.desc())
-elif selected_filter == 'lowest-fte':
-    query = query.order_by(StudentRecord.present_fte.asc())
+    # Filtering & Sorting logic
+    if selected_filter == 'chronic':
+        query = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0)
+    elif selected_filter == 'most-absences':
+        query = query.order_by(StudentRecord.absences.desc())
+    elif selected_filter == 'least-absences':
+        query = query.order_by(StudentRecord.absences.asc())
+    elif selected_filter == 'highest-fte':
+        query = query.order_by(StudentRecord.present_fte.desc())
+    elif selected_filter == 'lowest-fte':
+        query = query.order_by(StudentRecord.present_fte.asc())
 
     total_students = query.count()
     at_risk_count = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0).count()
