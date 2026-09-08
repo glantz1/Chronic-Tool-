@@ -728,7 +728,6 @@ def upload_csv():
         return redirect(url_for('index'))
 
     try:
-        # Handle UTF-8 with Byte Order Mark (BOM) from export tools
         content = file.stream.read().decode("utf-8-sig")
         stream = io.StringIO(content, newline=None)
         reader = csv.DictReader(stream)
@@ -736,14 +735,37 @@ def upload_csv():
         imported_count = 0
         skipped_count = 0
 
+        # Safe parsing helpers that handle None, empty strings, and '%'
+        def safe_float(val, default=0.0):
+            if val is None:
+                return default
+            val_str = str(val).replace('%', '').strip()
+            if not val_str:
+                return default
+            try:
+                return float(val_str)
+            except ValueError:
+                return default
+
+        def safe_int(val, default=0):
+            if val is None:
+                return default
+            val_str = str(val).strip()
+            if not val_str:
+                return default
+            try:
+                return int(float(val_str))
+            except ValueError:
+                return default
+
         for row in reader:
-            # Clean and normalize header keys
+            # Clean keys/values and protect against None keys/values
             clean_row = {
-                (k.strip().lower() if k else ''): (v.strip() if v else '') 
+                (str(k).strip().lower() if k else ''): (str(v).strip() if v is not None else '') 
                 for k, v in row.items()
             }
             
-            # Map Student ID (Matches 'StudentNumber' or 'studentnumber')
+            # Map Student ID
             student_id = (
                 clean_row.get('studentnumber') or 
                 clean_row.get('student_number') or 
@@ -752,7 +774,7 @@ def upload_csv():
                 clean_row.get('id')
             )
 
-            # Map Student Name (Matches 'studentName' or 'studentname')
+            # Map Student Name
             name = (
                 clean_row.get('studentname') or 
                 clean_row.get('student_name') or 
@@ -760,7 +782,6 @@ def upload_csv():
                 clean_row.get('full_name')
             )
 
-            # Combined First & Last Name Fallback
             if not name:
                 first = clean_row.get('first_name') or clean_row.get('firstname') or ''
                 last = clean_row.get('last_name') or clean_row.get('lastname') or ''
@@ -771,32 +792,18 @@ def upload_csv():
                 skipped_count += 1
                 continue
 
-            # Grade Level
             grade = clean_row.get('grade') or clean_row.get('grade_level') or 'N/A'
 
-            # Helpers for parsing numbers
-            def parse_float(val, default=0.0):
-                try:
-                    return float(val.replace('%', '').strip()) if val != '' else default
-                except (ValueError, AttributeError):
-                    return default
+            # Parse numeric fields safely
+            absences = safe_float(clean_row.get('currentschoolabsences7') or clean_row.get('absences'))
+            unexcused = safe_int(clean_row.get('unexcusedabsences') or clean_row.get('unexcused_absences'))
+            tardies = safe_int(clean_row.get('tardies'))
+            total_days = safe_float(clean_row.get('currentschoolmembershipdays11') or clean_row.get('total_days'), 180.0)
 
-            def parse_int(val, default=0):
-                try:
-                    return int(float(val)) if val != '' else default
-                except (ValueError, AttributeError):
-                    return default
-
-            # Map Absences & Membership Days from 'rptBI_AttendanceAnalysisDetail'
-            absences = parse_float(clean_row.get('currentschoolabsences7') or clean_row.get('absences'))
-            unexcused = parse_int(clean_row.get('unexcusedabsences') or clean_row.get('unexcused_absences'))
-            tardies = parse_int(clean_row.get('tardies'))
-            total_days = parse_float(clean_row.get('currentschoolmembershipdays11') or clean_row.get('total_days'), 180.0)
-
-            # Map Present FTE % ('PresentFTE3' or 'presentfte3')
-            present_fte_str = clean_row.get('presentfte3') or clean_row.get('present_fte') or clean_row.get('presentfte_dist3')
-            if present_fte_str:
-                present_fte = parse_float(present_fte_str)
+            # Present FTE %
+            present_fte_val = clean_row.get('presentfte3') or clean_row.get('present_fte') or clean_row.get('presentfte_dist3')
+            if present_fte_val:
+                present_fte = safe_float(present_fte_val)
             else:
                 present_fte = max(0.0, min(100.0, ((total_days - absences) / total_days) * 100)) if total_days > 0 else 0.0
 
@@ -819,7 +826,7 @@ def upload_csv():
         db.session.commit()
 
         if imported_count == 0:
-            flash("No valid records could be matched from the file.", "error")
+            flash("No valid records could be processed from the uploaded file.", "error")
         else:
             msg = f"Successfully processed {imported_count} student records."
             if skipped_count > 0:
