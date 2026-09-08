@@ -527,6 +527,9 @@ def index():
     query = StudentRecord.query
 
     if user.role != 'Admin':
+        # Add your non-admin query logic here (e.g., filtering by teacher/building/etc.), or remove line 529 if not needed.
+        pass
+
     if selected_grade != 'all':
         query = query.filter_by(grade=selected_grade)
 
@@ -549,8 +552,8 @@ def index():
         query = query.order_by(StudentRecord.present_fte.desc())
     elif selected_filter == 'lowest-fte':
         query = query.order_by(StudentRecord.present_fte.asc())
-    chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
 
+    chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
     per_page = 100
     total_pages = math.ceil(total_students / per_page) if total_students > 0 else 1
     students = query.offset((page - 1) * per_page).limit(per_page).all()
