@@ -539,7 +539,7 @@ def index():
             (StudentRecord.student_id.ilike(f"%{search_query}%"))
         )
 
-  selected_filter = request.args.get('filter', 'all')
+    selected_filter = request.args.get('filter', 'all')
 
     # Filtering & Sorting logic
     if selected_filter == 'chronic':
