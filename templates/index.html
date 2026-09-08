@@ -1,464 +1,548 @@
-<script>
-    let currentUser = null;
-    let searchTimeout = null;
+<select id="sortSelect" onchange="loadDashboard()" class="border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white">
+    <option value="absences_desc">Most Absences First</option>
+    <option value="absences_asc">Least Absences First</option>
+    <option value="fte_desc">Highest Present FTE% First</option>
+    <option value="fte_asc">Lowest Present FTE% First</option>
+    <option value="unexcused_desc">Most Unexcused Absences</option>
+    <option value="rate_asc">Lowest Attendance Rate</option>
+    <option value="name_asc">Name (A-Z)</option>
+</select>
+    <div id="uploadModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-xl border">
+            <h3 class="text-lg font-bold text-slate-800 mb-1">Upload Student CSV</h3>
+            <p id="uploadSchoolLabel" class="text-sm text-indigo-600 font-medium mb-4"></p>
+            
+            <form onsubmit="handleUpload(event)" class="space-y-4">
+                <input type="hidden" id="uploadSchoolId">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Select CSV File</label>
+                    <input type="file" id="csvFile" accept=".csv" required class="w-full text-sm border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                </div>
+                <div id="uploadError" class="text-red-600 text-sm hidden"></div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" onclick="toggleModal('uploadModal')" class="px-4 py-2 border rounded-lg text-slate-600 text-sm font-medium">Cancel</button>
+                    <button type="submit" id="uploadSubmitBtn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">Upload & Import</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
-    // Helper: Prevent XSS attacks from dynamic user strings
-    function escapeHTML(str) {
-        if (str === null || str === undefined) return '';
-        return String(str).replace(/[&<>'"]/g, 
-            tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
-        );
-    }
+    <!-- Modal: Manage & Add Users -->
+    <div id="usersModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-xl p-6 w-full max-w-2xl shadow-xl border max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-slate-800">User Management</h3>
+                <button onclick="toggleModal('usersModal')" class="text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
 
-    // Helper: Debounce function for search input
-    function debouncedSearch() {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            loadDashboard();
-        }, 300);
-    }
+            <!-- Add User Form -->
+            <form onsubmit="handleAddUser(event)" class="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-6 space-y-3">
+                <h4 class="text-sm font-semibold text-slate-700">Add New User</h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input type="email" id="newUserEmail" placeholder="User Email" required class="px-3 py-1.5 border rounded-lg text-sm">
+                    <input type="password" id="newUserPassword" placeholder="Password" required class="px-3 py-1.5 border rounded-lg text-sm">
+                    <select id="newUserRole" class="px-3 py-1.5 border rounded-lg text-sm bg-white">
+                        <option value="staff">Staff / Counselor</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                    <select id="newUserSchool" class="px-3 py-1.5 border rounded-lg text-sm bg-white">
+                        <option value="">No School Assigned (Admin Only)</option>
+                    </select>
+                </div>
+                <div id="addUserError" class="text-red-600 text-xs hidden"></div>
+                <div class="flex justify-end">
+                    <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-1.5 rounded-lg font-medium transition">
+                        Create User
+                    </button>
+                </div>
+            </form>
 
-    function toggleModal(id) {
-        const el = document.getElementById(id);
-        if (el) {
-            el.classList.toggle('hidden');
-        } else {
-            console.error(`Modal element "${id}" was not found.`);
-        }
-    }
+            <!-- Existing Users Table -->
+            <div class="overflow-y-auto flex-grow">
+                <h4 class="text-sm font-semibold text-slate-700 mb-2">Existing System Users</h4>
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-100 text-slate-600 font-semibold uppercase">
+                        <tr>
+                            <th class="p-2">Email</th>
+                            <th class="p-2">Role</th>
+                            <th class="p-2">Assigned School</th>
+                            <th class="p-2 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="userListTable" class="divide-y divide-slate-200">
+                        <!-- Populated via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 
-    async function checkAuth() {
-        try {
-            const res = await fetch('/me');
-            if (!res.ok) throw new Error("Auth endpoint rejected query");
-            const data = await res.json();
-            
-            if (data.logged_in) {
-                currentUser = data.user;
-                document.getElementById('loginView')?.classList.add('hidden');
-                document.getElementById('dashboardView')?.classList.remove('hidden');
-                document.getElementById('userInfo')?.classList.remove('hidden');
-                
-                const userEmailEl = document.getElementById('userEmail');
-                if (userEmailEl) userEmailEl.textContent = currentUser.email;
+    <!-- Modal: Interventions & Actions -->
+    <div id="interventionModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-xl p-6 w-full max-w-2xl shadow-xl border max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-start mb-4 border-b pb-3">
+                <div>
+                    <h3 id="interStudentName" class="text-xl font-bold text-slate-800"></h3>
+                    <p id="interStudentMeta" class="text-xs text-slate-500 font-medium mt-0.5"></p>
+                </div>
+                <button onclick="toggleModal('interventionModal')" class="text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
 
-                if (currentUser.role === 'admin') {
-                    document.getElementById('addSchoolBtn')?.classList.remove('hidden');
-                    document.getElementById('manageUsersBtn')?.classList.remove('hidden');
-                }
+            <!-- Log Intervention Form -->
+            <form onsubmit="handleSaveIntervention(event)" class="bg-indigo-50/50 p-4 rounded-lg border border-indigo-100 mb-6 space-y-3">
+                <h4 class="text-sm font-semibold text-indigo-900 flex items-center">
+                    <i class="fa-solid fa-pen-to-square mr-1.5"></i> Log New Intervention Action
+                </h4>
+                <input type="hidden" id="interStudentDbId">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Date</label>
+                        <input type="date" id="interDate" required class="w-full px-3 py-1.5 border rounded-lg text-sm bg-white">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Action / Strategy Type</label>
+                        <select id="interType" required class="w-full px-3 py-1.5 border rounded-lg text-sm bg-white">
+                            <option value="Parent Phone Call">Parent Phone Call</option>
+                            <option value="Student Conference">Student Conference</option>
+                            <option value="Parent Meeting / Conference">Parent Meeting / Conference</option>
+                            <option value="Attendance Contract Signed">Attendance Contract Signed</option>
+                            <option value="Home Visit">Home Visit</option>
+                            <option value="Counseling Referral">Counseling Referral</option>
+                            <option value="Official Warning Letter Sent">Official Warning Letter Sent</option>
+                            <option value="Truancy Diversion Referral">Truancy Diversion Referral</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Details & Meeting Notes</label>
+                    <textarea id="interNotes" rows="2" placeholder="Record discussion outcomes or next steps..." class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
+                </div>
+                <div id="interError" class="text-red-600 text-xs hidden"></div>
+                <div class="flex justify-end">
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded-lg font-medium transition flex items-center">
+                        <i class="fa-solid fa-floppy-disk mr-1.5"></i> Save Action Log
+                    </button>
+                </div>
+            </form>
 
-                await loadSchools();
-            } else {
-                showLogin();
-            }
-        } catch (err) {
-            console.warn("Auth check unfulfilled or offline, displaying login view", err);
-            showLogin();
-        }
-    }
+            <!-- Intervention History -->
+            <div class="overflow-y-auto flex-grow">
+                <h4 class="text-sm font-semibold text-slate-700 mb-3">Logged Intervention History</h4>
+                <div id="interventionHistoryList" class="space-y-3">
+                    <!-- Dynamic timeline entries -->
+                </div>
+            </div>
+        </div>
+    </div>
 
-    function showLogin() {
-        document.getElementById('loginView')?.classList.remove('hidden');
-        document.getElementById('dashboardView')?.classList.add('hidden');
-        document.getElementById('userInfo')?.classList.add('hidden');
-    }
+    <!-- Complete JavaScript Logic -->
+    <script>
+        let currentUser = null;
 
-    async function handleLogin(e) {
-        e.preventDefault();
-        const email = document.getElementById('loginEmail').value;
-        const password = document.getElementById('loginPassword').value;
-        const errDiv = document.getElementById('loginError');
+        function toggleModal(id) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.classList.toggle('hidden');
+            } else {
+                console.error(`Modal element "${id}" was not found.`);
+            }
+        }
 
-        try {
-            const res = await fetch('/login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ email, password })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                if (errDiv) errDiv.classList.add('hidden');
-                await checkAuth();
-            } else {
-                if (errDiv) {
-                    errDiv.textContent = data.error || "Login failed.";
-                    errDiv.classList.remove('hidden');
-                }
-            }
-        } catch (err) {
-            if (errDiv) {
-                errDiv.textContent = "Unable to connect to server.";
-                errDiv.classList.remove('hidden');
-            }
-        }
-    }
+        async function checkAuth() {
+            try {
+                const res = await fetch('/me');
+                if (!res.ok) throw new Error("Auth endpoint rejected query");
+                const data = await res.json();
+                
+                if (data.logged_in) {
+                    currentUser = data.user;
+                    document.getElementById('loginView').classList.add('hidden');
+                    document.getElementById('dashboardView').classList.remove('hidden');
+                    document.getElementById('userInfo').classList.remove('hidden');
+                    document.getElementById('userEmail').textContent = currentUser.email;
 
-    async function logout() {
-        await fetch('/logout', { method: 'POST' });
-        location.reload();
-    }
+                    if (currentUser.role === 'admin') {
+                        document.getElementById('addSchoolBtn').classList.remove('hidden');
+                        document.getElementById('manageUsersBtn').classList.remove('hidden');
+                    }
 
-    async function loadSchools() {
-        try {
-            const res = await fetch('/schools');
-            const data = await res.json();
-            const select = document.getElementById('schoolSelect');
-            if (!select) return;
+                    await loadSchools();
+                } else {
+                    showLogin();
+                }
+            } catch (err) {
+                console.warn("Auth check unfulfilled or offline, displaying login view", err);
+                showLogin();
+            }
+        }
 
-            select.innerHTML = '';
-            (data.schools || []).forEach(s => {
-                select.innerHTML += `<option value="${escapeHTML(s.id)}">${escapeHTML(s.name)}</option>`;
-            });
+        function showLogin() {
+            document.getElementById('loginView').classList.remove('hidden');
+            document.getElementById('dashboardView').classList.add('hidden');
+            document.getElementById('userInfo').classList.add('hidden');
+        }
 
-            if (data.schools && data.schools.length > 0) {
-                await loadDashboard();
-            }
-        } catch(e) {
-            console.error("Could not load schools:", e);
-        }
-    }
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            try {
+                const res = await fetch('/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    checkAuth();
+                } else {
+                    document.getElementById('loginError').textContent = data.error || "Login failed.";
+                    document.getElementById('loginError').classList.remove('hidden');
+                }
+            } catch (err) {
+                document.getElementById('loginError').textContent = "Unable to connect to server.";
+                document.getElementById('loginError').classList.remove('hidden');
+            }
+        }
 
-    async function handleAddSchool(e) {
-        e.preventDefault();
-        const input = document.getElementById('newSchoolName');
-        const name = input ? input.value : '';
+        async function logout() {
+            await fetch('/logout', { method: 'POST' });
+            location.reload();
+        }
 
-        const res = await fetch('/admin/schools', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ name })
-        });
+        async function loadSchools() {
+            try {
+                const res = await fetch('/schools');
+                const data = await res.json();
+                const select = document.getElementById('schoolSelect');
+                select.innerHTML = '';
+                (data.schools || []).forEach(s => {
+                    select.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+                });
+                if (data.schools && data.schools.length > 0) {
+                    loadDashboard();
+                }
+            } catch(e) {
+                console.error("Could not load schools:", e);
+            }
+        }
 
-        if (res.ok) {
-            toggleModal('schoolModal');
-            if (input) input.value = '';
-            await loadSchools();
-        } else {
-            const err = await res.json();
-            alert(err.error || "Failed to add school");
-        }
-    }
+        async function handleAddSchool(e) {
+            e.preventDefault();
+            const name = document.getElementById('newSchoolName').value;
+            const res = await fetch('/admin/schools', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ name })
+            });
+            if (res.ok) {
+                toggleModal('schoolModal');
+                document.getElementById('newSchoolName').value = '';
+                await loadSchools();
+            } else {
+                const err = await res.json();
+                alert(err.error || "Failed to add school");
+            }
+        }
 
-    async function loadDashboard() {
-        const schoolSelect = document.getElementById('schoolSelect');
-        if (!schoolSelect) return;
-        const schoolId = schoolSelect.value;
-        if (!schoolId) return;
+        async function loadDashboard() {
+            const schoolId = document.getElementById('schoolSelect').value;
+            if (!schoolId) return;
 
-        const search = document.getElementById('searchInput')?.value || '';
-        const grade = document.getElementById('gradeFilter')?.value || '';
-        const sort = document.getElementById('sortSelect')?.value || 'absences_desc';
-        const chronic = document.getElementById('chronicOnly')?.checked || false;
+            const search = document.getElementById('searchInput').value;
+            const grade = document.getElementById('gradeFilter').value;
+            const sort = document.getElementById('sortSelect').value;
+            const chronic = document.getElementById('chronicOnly').checked;
 
-        const url = `/students?school_id=${encodeURIComponent(schoolId)}&search=${encodeURIComponent(search)}&grade=${encodeURIComponent(grade)}&sort=${encodeURIComponent(sort)}&chronic=${chronic}`;
-        
-        try {
-            const res = await fetch(url);
-            const data = await res.json();
+            const url = `/students?school_id=${schoolId}&search=${encodeURIComponent(search)}&grade=${encodeURIComponent(grade)}&sort=${sort}&chronic=${chronic}`;
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
 
-            document.getElementById('statTotal').textContent = data.total_students || 0;
-            document.getElementById('statChronic').textContent = data.chronic_count || 0;
-            document.getElementById('statRate').textContent = `${data.chronic_rate_pct || 0}%`;
+                document.getElementById('statTotal').textContent = data.total_students || 0;
+                document.getElementById('statChronic').textContent = data.chronic_count || 0;
+                document.getElementById('statRate').textContent = `${data.chronic_rate_pct || 0}%`;
 
-            const gradeSelect = document.getElementById('gradeFilter');
-            if (gradeSelect) {
-                const currentGradeSelection = gradeSelect.value;
-                gradeSelect.innerHTML = '<option value="">All Grades</option>';
-                (data.available_grades || []).forEach(g => {
-                    const selected = String(g) === String(currentGradeSelection) ? 'selected' : '';
-                    gradeSelect.innerHTML += `<option value="${escapeHTML(g)}" ${selected}>Grade ${escapeHTML(g)}</option>`;
-                });
-            }
+                const gradeSelect = document.getElementById('gradeFilter');
+                const currentGradeSelection = gradeSelect.value;
+                gradeSelect.innerHTML = '<option value="">All Grades</option>';
+                (data.available_grades || []).forEach(g => {
+                    const selected = g === currentGradeSelection ? 'selected' : '';
+                    gradeSelect.innerHTML += `<option value="${g}" ${selected}>Grade ${g}</option>`;
+                });
 
-            const tbody = document.getElementById('studentTableBody');
-            if (!tbody) return;
-            tbody.innerHTML = '';
+                const tbody = document.getElementById('studentTableBody');
+                tbody.innerHTML = '';
 
-            (data.students || []).forEach(s => {
-                const statusBadge = s.is_chronic 
-                    ? `<span class="bg-red-100 text-red-700 text-xs px-2.5 py-1 rounded-full font-semibold">Chronic</span>`
-                    : `<span class="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-semibold">On Track</span>`;
+                (data.students || []).forEach(s => {
+                    const statusBadge = s.is_chronic 
+                        ? `<span class="bg-red-100 text-red-700 text-xs px-2.5 py-1 rounded-full font-semibold">Chronic</span>`
+                        : `<span class="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-semibold">On Track</span>`;
 
-                const row = document.createElement('tr');
-                row.className = "hover:bg-indigo-50/50 cursor-pointer transition";
-                row.onclick = () => openInterventionModal(s);
-                
-                row.innerHTML = `
-                    <td class="p-3.5 font-medium text-slate-700">${escapeHTML(s.student_id)}</td>
-                    <td class="p-3.5 font-bold text-slate-800">${escapeHTML(s.student_name)}</td>
-                    <td class="p-3.5">${escapeHTML(s.grade) || '-'}</td>
-                    <td class="p-3.5 text-center font-semibold text-slate-800">${escapeHTML(s.days_absent)}</td>
-                    <td class="p-3.5 text-center text-amber-600 font-semibold">${escapeHTML(s.unexcused_absences)}</td>
-                    <td class="p-3.5 text-center font-bold text-slate-800">${escapeHTML(s.attendance_rate_pct)}%</td>
-                    <td class="p-3.5 text-center">${statusBadge}</td>
-                    <td class="p-3.5 text-right font-medium text-indigo-600">
-                        <span class="bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg text-xs font-semibold">
-                            <i class="fa-solid fa-clipboard-list mr-1"></i> ${escapeHTML(s.interventions_count)} logged
-                        </span>
-                    </td>
-                `;
-                tbody.appendChild(row);
-            });
-        } catch(e) {
-            console.error("Dashboard fetch error:", e);
-        }
-    }
+                    const row = document.createElement('tr');
+                    row.className = "hover:bg-indigo-50/50 cursor-pointer transition";
+                    row.onclick = () => openInterventionModal(s);
+                    
+                    row.innerHTML = `
+                        <td class="p-3.5 font-medium text-slate-700">${s.student_id}</td>
+                        <td class="p-3.5 font-bold text-slate-800">${s.student_name}</td>
+                        <td class="p-3.5">${s.grade || '-'}</td>
+                        <td class="p-3.5 text-center font-semibold text-slate-800">${s.days_absent}</td>
+                        <td class="p-3.5 text-center text-amber-600 font-semibold">${s.unexcused_absences}</td>
+                        <td class="p-3.5 text-center font-bold text-slate-800">${s.attendance_rate_pct}%</td>
+                        <td class="p-3.5 text-center">${statusBadge}</td>
+                        <td class="p-3.5 text-right font-medium text-indigo-600">
+                            <span class="bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg text-xs font-semibold">
+                                <i class="fa-solid fa-clipboard-list mr-1"></i> ${s.interventions_count} logged
+                            </span>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch(e) {
+                console.error("Dashboard fetch error:", e);
+            }
+        }
 
-    async function openInterventionModal(student) {
-        document.getElementById('interStudentDbId').value = student.db_id;
-        document.getElementById('interStudentName').textContent = student.student_name;
-        document.getElementById('interStudentMeta').textContent = `ID: ${student.student_id} | Grade: ${student.grade || 'N/A'} | Absences: ${student.days_absent} | Attendance: ${student.attendance_rate_pct}%`;
-        
-        document.getElementById('interDate').value = new Date().toISOString().split('T')[0];
-        document.getElementById('interNotes').value = '';
-        document.getElementById('interError').classList.add('hidden');
+        async function openInterventionModal(student) {
+            document.getElementById('interStudentDbId').value = student.db_id;
+            document.getElementById('interStudentName').textContent = student.student_name;
+            document.getElementById('interStudentMeta').textContent = `ID: ${student.student_id} | Grade: ${student.grade || 'N/A'} | Absences: ${student.days_absent} | Attendance: ${student.attendance_rate_pct}%`;
+            
+            document.getElementById('interDate').value = new Date().toISOString().split('T')[0];
+            document.getElementById('interNotes').value = '';
+            document.getElementById('interError').classList.add('hidden');
 
-        toggleModal('interventionModal');
-        await loadInterventionHistory(student.db_id);
-    }
+            toggleModal('interventionModal');
+            await loadInterventionHistory(student.db_id);
+        }
 
-    async function loadInterventionHistory(studentDbId) {
-        const listDiv = document.getElementById('interventionHistoryList');
-        if (!listDiv) return;
-        listDiv.innerHTML = '<p class="text-xs text-slate-400">Loading history...</p>';
+        async function loadInterventionHistory(studentDbId) {
+            const listDiv = document.getElementById('interventionHistoryList');
+            listDiv.innerHTML = '<p class="text-xs text-slate-400">Loading history...</p>';
 
-        try {
-            const res = await fetch(`/interventions?student_db_id=${encodeURIComponent(studentDbId)}`);
-            if (!res.ok) throw new Error();
-            const data = await res.json();
-            listDiv.innerHTML = '';
+            try {
+                const res = await fetch(`/interventions?student_db_id=${studentDbId}`);
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                listDiv.innerHTML = '';
 
-            if (!data.interventions || data.interventions.length === 0) {
-                listDiv.innerHTML = '<p class="text-xs text-slate-400 italic">No interventions recorded yet for this student.</p>';
-                return;
-            }
+                if (!data.interventions || data.interventions.length === 0) {
+                    listDiv.innerHTML = '<p class="text-xs text-slate-400 italic">No interventions recorded yet for this student.</p>';
+                    return;
+                }
 
-            data.interventions.forEach(item => {
-                const formattedNotes = item.notes ? escapeHTML(item.notes) : '<span class="italic text-slate-400">No additional notes provided.</span>';
-                
-                listDiv.innerHTML += `
-                    <div class="bg-slate-50 border border-slate-200 p-3 rounded-lg text-xs space-y-1">
-                        <div class="flex justify-between items-center">
-                            <span class="font-bold text-slate-800">${escapeHTML(item.type)}</span>
-                            <span class="text-slate-400 font-medium">${escapeHTML(item.date)}</span>
-                        </div>
-                        <p class="text-slate-600">${formattedNotes}</p>
-                        <div class="text-[10px] text-indigo-600 font-medium text-right pt-1">Logged by: ${escapeHTML(item.logged_by)}</div>
-                    </div>
-                `;
-            });
-        } catch(e) {
-            listDiv.innerHTML = '<p class="text-xs text-red-500">Failed to load intervention history.</p>';
-        }
-    }
+                data.interventions.forEach(item => {
+                    listDiv.innerHTML += `
+                        <div class="bg-slate-50 border border-slate-200 p-3 rounded-lg text-xs space-y-1">
+                            <div class="flex justify-between items-center">
+                                <span class="font-bold text-slate-800">${item.type}</span>
+                                <span class="text-slate-400 font-medium">${item.date}</span>
+                            </div>
+                            <p class="text-slate-600">${item.notes || '<span class="italic text-slate-400">No additional notes provided.</span>'}</p>
+                            <div class="text-[10px] text-indigo-600 font-medium text-right pt-1">Logged by: ${item.logged_by}</div>
+                        </div>
+                    `;
+                });
+            } catch(e) {
+                listDiv.innerHTML = '<p class="text-xs text-red-500">Failed to load intervention history.</p>';
+            }
+        }
 
-    async function handleSaveIntervention(e) {
-        e.preventDefault();
-        const studentDbId = document.getElementById('interStudentDbId').value;
-        const date = document.getElementById('interDate').value;
-        const type = document.getElementById('interType').value;
-        const notes = document.getElementById('interNotes').value;
-        const errDiv = document.getElementById('interError');
+        async function handleSaveIntervention(e) {
+            e.preventDefault();
+            const studentDbId = document.getElementById('interStudentDbId').value;
+            const date = document.getElementById('interDate').value;
+            const type = document.getElementById('interType').value;
+            const notes = document.getElementById('interNotes').value;
+            const errDiv = document.getElementById('interError');
 
-        if (errDiv) errDiv.classList.add('hidden');
+            errDiv.classList.add('hidden');
 
-        const res = await fetch('/interventions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                student_db_id: studentDbId,
-                date: date,
-                type: type,
-                notes: notes
-            })
-        });
+            const res = await fetch('/interventions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    student_db_id: studentDbId,
+                    date: date,
+                    type: type,
+                    notes: notes
+                })
+            });
 
-        const data = await res.json();
-        if (res.ok) {
-            document.getElementById('interNotes').value = '';
-            await loadInterventionHistory(studentDbId);
-            await loadDashboard();
-        } else {
-            if (errDiv) {
-                errDiv.textContent = data.error || "Failed to log intervention.";
-                errDiv.classList.remove('hidden');
-            }
-        }
-    }
+            const data = await res.json();
+            if (res.ok) {
+                document.getElementById('interNotes').value = '';
+                await loadInterventionHistory(studentDbId);
+                await loadDashboard();
+            } else {
+                errDiv.textContent = data.error || "Failed to log intervention.";
+                errDiv.classList.remove('hidden');
+            }
+        }
 
-    function openUploadModal() {
-        const schoolSelect = document.getElementById('schoolSelect');
-        const schoolId = schoolSelect ? schoolSelect.value : null;
-        
-        if (!schoolId) {
-            alert("Please select or create a school first.");
-            return;
-        }
+        function openUploadModal() {
+            const schoolSelect = document.getElementById('schoolSelect');
+            const schoolId = schoolSelect.value;
+            
+            if (!schoolId) {
+                alert("Please select or create a school first.");
+                return;
+            }
 
-        const schoolName = schoolSelect.options[schoolSelect.selectedIndex].text;
-        
-        document.getElementById('uploadSchoolId').value = schoolId;
-        document.getElementById('uploadSchoolLabel').textContent = `Target School: ${schoolName}`;
-        document.getElementById('uploadError').classList.add('hidden');
-        document.getElementById('csvFile').value = '';
-        
-        toggleModal('uploadModal');
-    }
+            const schoolName = schoolSelect.options[schoolSelect.selectedIndex].text;
+            
+            document.getElementById('uploadSchoolId').value = schoolId;
+            document.getElementById('uploadSchoolLabel').textContent = `Target School: ${schoolName}`;
+            document.getElementById('uploadError').classList.add('hidden');
+            document.getElementById('csvFile').value = '';
+            
+            toggleModal('uploadModal');
+        }
 
-    async function handleUpload(e) {
-        e.preventDefault();
-        const schoolId = document.getElementById('uploadSchoolId').value;
-        const fileInput = document.getElementById('csvFile');
-        const submitBtn = document.getElementById('uploadSubmitBtn');
-        const errorDiv = document.getElementById('uploadError');
+        async function handleUpload(e) {
+            e.preventDefault();
+            const schoolId = document.getElementById('uploadSchoolId').value;
+            const fileInput = document.getElementById('csvFile');
+            const submitBtn = document.getElementById('uploadSubmitBtn');
+            const errorDiv = document.getElementById('uploadError');
 
-        if (!fileInput.files.length) {
-            if (errorDiv) {
-                errorDiv.textContent = "Please select a file.";
-                errorDiv.classList.remove('hidden');
-            }
-            return;
-        }
+            if (!fileInput.files.length) {
+                errorDiv.textContent = "Please select a file.";
+                errorDiv.classList.remove('hidden');
+                return;
+            }
 
-        const formData = new FormData();
-        formData.append('school_id', schoolId);
-        formData.append('file', fileInput.files[0]);
+            const formData = new FormData();
+            formData.append('school_id', schoolId);
+            formData.append('file', fileInput.files[0]);
 
-        if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.textContent = "Uploading...";
-        }
-        if (errorDiv) errorDiv.classList.add('hidden');
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Uploading...";
+            errorDiv.classList.add('hidden');
 
-        try {
-            const res = await fetch('/upload', { method: 'POST', body: formData });
-            const data = await res.json();
+            try {
+                const res = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await res.json();
 
-            if (res.ok) {
-                alert(data.message || "CSV data successfully uploaded and imported!");
-                toggleModal('uploadModal');
-                await loadDashboard();
-            } else {
-                if (errorDiv) {
-                    errorDiv.textContent = data.error || "Failed to process CSV file.";
-                    errorDiv.classList.remove('hidden');
-                }
-            }
-        } catch (err) {
-            if (errorDiv) {
-                errorDiv.textContent = "An unexpected error occurred during upload.";
-                errorDiv.classList.remove('hidden');
-            }
-        } finally {
-            if (submitBtn) {
-                submitBtn.disabled = false;
-                submitBtn.textContent = "Upload & Import";
-            }
-        }
-    }
+                if (res.ok) {
+                    alert(data.message || "CSV data successfully uploaded and imported!");
+                    toggleModal('uploadModal');
+                    await loadDashboard();
+                } else {
+                    errorDiv.textContent = data.error || "Failed to process CSV file.";
+                    errorDiv.classList.remove('hidden');
+                }
+            } catch (err) {
+                errorDiv.textContent = "An unexpected error occurred during upload.";
+                errorDiv.classList.remove('hidden');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Upload & Import";
+            }
+        }
 
-    async function openUsersModal() {
-        toggleModal('usersModal');
-        await loadUsers();
-        await populateSchoolDropdownForUser();
-    }
+        async function openUsersModal() {
+            toggleModal('usersModal');
+            await loadUsers();
+            await populateSchoolDropdownForUser();
+        }
 
-    async function loadUsers() {
-        const userTable = document.getElementById('userListTable');
-        if (!userTable) return;
-        userTable.innerHTML = '<tr><td colspan="4" class="p-2 text-slate-400">Loading users...</td></tr>';
+        async function loadUsers() {
+            const userTable = document.getElementById('userListTable');
+            userTable.innerHTML = '<tr><td colspan="4" class="p-2 text-slate-400">Loading users...</td></tr>';
 
-        try {
-            const res = await fetch('/admin/users');
-            if (!res.ok) throw new Error();
-            const data = await res.json();
-            userTable.innerHTML = '';
+            try {
+                const res = await fetch('/admin/users');
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                userTable.innerHTML = '';
 
-            (data.users || []).forEach(u => {
-                const row = document.createElement('tr');
-                row.className = "hover:bg-slate-50";
-                row.innerHTML = `
-                    <td class="p-2 font-medium text-slate-800">${escapeHTML(u.email)}</td>
-                    <td class="p-2 capitalize text-slate-600">${escapeHTML(u.role)}</td>
-                    <td class="p-2 text-slate-600">${escapeHTML(u.school_name) || 'N/A'}</td>
-                    <td class="p-2 text-right">
-                        <button onclick="deleteUser(${u.id})" class="text-red-600 hover:text-red-800 font-medium">Delete</button>
-                    </td>
-                `;
-                userTable.appendChild(row);
-            });
-        } catch (e) {
-            userTable.innerHTML = '<tr><td colspan="4" class="p-2 text-red-500">Error loading users.</td></tr>';
-        }
-    }
+                (data.users || []).forEach(u => {
+                    const row = document.createElement('tr');
+                    row.className = "hover:bg-slate-50";
+                    row.innerHTML = `
+                        <td class="p-2 font-medium text-slate-800">${u.email}</td>
+                        <td class="p-2 capitalize text-slate-600">${u.role}</td>
+                        <td class="p-2 text-slate-600">${u.school_name || 'N/A'}</td>
+                        <td class="p-2 text-right">
+                            <button onclick="deleteUser(${u.id})" class="text-red-600 hover:text-red-800 font-medium">Delete</button>
+                        </td>
+                    `;
+                    userTable.appendChild(row);
+                });
+            } catch (e) {
+                userTable.innerHTML = '<tr><td colspan="4" class="p-2 text-red-500">Error loading users.</td></tr>';
+            }
+        }
 
-    async function populateSchoolDropdownForUser() {
-        try {
-            const res = await fetch('/schools');
-            const data = await res.json();
-            const select = document.getElementById('newUserSchool');
-            if (!select) return;
+        async function populateSchoolDropdownForUser() {
+            try {
+                const res = await fetch('/schools');
+                const data = await res.json();
+                const select = document.getElementById('newUserSchool');
+                select.innerHTML = '<option value="">No School Assigned (Admin Only)</option>';
+                (data.schools || []).forEach(s => {
+                    select.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+                });
+            } catch (e) {
+                console.error("Could not populate user school options:", e);
+            }
+        }
 
-            select.innerHTML = '<option value="">No School Assigned (Admin Only)</option>';
-            (data.schools || []).forEach(s => {
-                select.innerHTML += `<option value="${escapeHTML(s.id)}">${escapeHTML(s.name)}</option>`;
-            });
-        } catch (e) {
-            console.error("Could not populate user school options:", e);
-        }
-    }
+        async function handleAddUser(e) {
+            e.preventDefault();
+            const email = document.getElementById('newUserEmail').value;
+            const password = document.getElementById('newUserPassword').value;
+            const role = document.getElementById('newUserRole').value;
+            const school_id = document.getElementById('newUserSchool').value;
+            const errDiv = document.getElementById('addUserError');
 
-    async function handleAddUser(e) {
-        e.preventDefault();
-        const email = document.getElementById('newUserEmail').value;
-        const password = document.getElementById('newUserPassword').value;
-        const role = document.getElementById('newUserRole').value;
-        const school_id = document.getElementById('newUserSchool').value;
-        const errDiv = document.getElementById('addUserError');
+            errDiv.classList.add('hidden');
 
-        if (errDiv) errDiv.classList.add('hidden');
+            const res = await fetch('/admin/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password, role, school_id })
+            });
 
-        const res = await fetch('/admin/users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, role, school_id })
-        });
+            const data = await res.json();
+            if (res.ok) {
+                document.getElementById('newUserEmail').value = '';
+                document.getElementById('newUserPassword').value = '';
+                await loadUsers();
+            } else {
+                errDiv.textContent = data.error || "Failed to add user.";
+                errDiv.classList.remove('hidden');
+            }
+        }
 
-        const data = await res.json();
-        if (res.ok) {
-            document.getElementById('newUserEmail').value = '';
-            document.getElementById('newUserPassword').value = '';
-            await loadUsers();
-        } else {
-            if (errDiv) {
-                errDiv.textContent = data.error || "Failed to add user.";
-                errDiv.classList.remove('hidden');
-            }
-        }
-    }
+        async function deleteUser(userId) {
+            if (!confirm("Are you sure you want to delete this user?")) return;
 
-    async function deleteUser(userId) {
-        if (!confirm("Are you sure you want to delete this user?")) return;
+            const res = await fetch(`/admin/users/${userId}`, { method: 'DELETE' });
+            if (res.ok) {
+                await loadUsers();
+            } else {
+                alert("Failed to delete user.");
+            }
+        }
 
-        const res = await fetch(`/admin/users/${userId}`, { method: 'DELETE' });
-        if (res.ok) {
-            await loadUsers();
-        } else {
-            alert("Failed to delete user.");
-        }
-    }
+        function exportInterventions() {
+            const schoolId = document.getElementById('schoolSelect').value;
+            if (!schoolId) {
+                alert("Please select a school to export data.");
+                return;
+            }
+            window.location.href = `/export/interventions?school_id=${schoolId}`;
+        }
 
-    function exportInterventions() {
-        const schoolSelect = document.getElementById('schoolSelect');
-        const schoolId = schoolSelect ? schoolSelect.value : null;
-        
-        if (!schoolId) {
-            alert("Please select a school to export data.");
-            return;
-        }
-        window.location.href = `/export/interventions?school_id=${encodeURIComponent(schoolId)}`;
-    }
-
-    // Initialize application on startup
-    document.addEventListener('DOMContentLoaded', checkAuth);
-</script>
+        // Initialize application on startup
+        document.addEventListener('DOMContentLoaded', checkAuth);
+    </script>
+</body>
+</html>
