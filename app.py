@@ -87,7 +87,7 @@ def admin_required(f):
         if 'user_id' not in session:
             flash("Please log in to access this page.", "error")
             return redirect(url_for('login'))
-        user = User.query.get(session['user_id'])
+        user = db.session.get(User, session['user_id'])
         if not user or user.role != 'Admin':
             flash("Access denied. Admin privileges required.", "error")
             return redirect(url_for('index'))
@@ -238,7 +238,7 @@ INDEX_HTML = """
                                 </div>
                             </div>
 
-                            <!-- Add User Form -->
+                            <!-- Add & Manage User Form -->
                             <div class="col-md-7">
                                 <div class="border rounded p-3 bg-white">
                                     <h6 class="fw-bold mb-3">Create User Account</h6>
@@ -270,12 +270,13 @@ INDEX_HTML = """
 
                                     <h6 class="fw-bold mt-4 mb-2">System Users</h6>
                                     <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
-                                        <table class="table table-sm small mb-0">
+                                        <table class="table table-sm small mb-0 align-middle">
                                             <thead>
                                                 <tr>
                                                     <th>Username</th>
                                                     <th>Role</th>
                                                     <th>Assigned School</th>
+                                                    <th class="text-end pe-2">Action</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -284,6 +285,15 @@ INDEX_HTML = """
                                                     <td>{{ u.username }}</td>
                                                     <td><span class="badge bg-info text-dark">{{ u.role }}</span></td>
                                                     <td>{{ u.school.name if u.school else 'All Schools' }}</td>
+                                                    <td class="text-end pe-2">
+                                                        {% if u.id != current_user.id %}
+                                                        <form method="POST" action="{{ url_for('delete_user', user_id=u.id) }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete user {{ u.username }}?');">
+                                                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2">Delete</button>
+                                                        </form>
+                                                        {% else %}
+                                                        <span class="text-muted small">Active</span>
+                                                        {% endif %}
+                                                    </td>
                                                 </tr>
                                                 {% endfor %}
                                             </tbody>
@@ -396,7 +406,7 @@ INDEX_HTML = """
                                 <td>{{ s.student_id }}</td>
                                 <td class="fw-bold">{{ s.name }}</td>
                                 <td>{{ s.grade }}</td>
-                                <td>{{ s.school.name }}</td>
+                                <td>{{ s.school.name if s.school else 'N/A' }}</td>
                                 <td>{{ "%.1f"|format(s.absences) }}</td>
                                 <td>{{ s.unexcused_absences }}</td>
                                 <td>{{ s.tardies }}</td>
@@ -486,7 +496,6 @@ INDEX_HTML = """
         </div>
     </div>
 
-    <!-- BOOTSTRAP JS FOR EXPANDABLE ACCORDION CONTROLS & MODALS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
@@ -520,7 +529,7 @@ def logout():
 @app.route('/')
 @login_required
 def index():
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
 
     selected_school_id = request.args.get('school_id', 'all')
     selected_grade = request.args.get('grade', 'all')
@@ -531,25 +540,24 @@ def index():
 
     query = StudentRecord.query
 
-    # 1. Restrict non-admins to their assigned school
+    # 1. Scope filter by User Role / School Selection
     if user.role != 'Admin':
         query = query.filter_by(school_id=user.school_id)
-    # 2. If Admin, filter by selected dropdown school (if not 'all')
     elif selected_school_id != 'all':
         query = query.filter_by(school_id=selected_school_id)
 
-    # 3. Grade Filter
+    # 2. Grade Filter
     if selected_grade != 'all':
         query = query.filter_by(grade=selected_grade)
 
-    # 4. Search Query Filter
+    # 3. Search Query Filter
     if search_query:
         query = query.filter(
             (StudentRecord.name.ilike(f"%{search_query}%")) | 
             (StudentRecord.student_id.ilike(f"%{search_query}%"))
         )
 
-    # 5. Status / Attendance Filter
+    # 4. Status / Attendance Filter
     if selected_filter == 'chronic':
         query = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0)
     elif selected_filter == 'most-absences':
@@ -563,7 +571,7 @@ def index():
     elif selected_filter == 'lowest-fte':
         query = query.order_by(StudentRecord.present_fte.asc())
 
-    # 6. Calculate Metrics on Filtered Query
+    # 5. Calculate Metrics on Filtered Query safely
     total_students = query.count()
     at_risk_count = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0).count()
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
@@ -575,8 +583,10 @@ def index():
     available_grades = [g[0] for g in db.session.query(StudentRecord.grade).distinct().all() if g[0]]
 
     active_school_name = "All Schools"
-    if selected_school_id != 'all':
-        sch = School.query.get(int(selected_school_id))
+    if user.role != 'Admin' and user.school:
+        active_school_name = user.school.name
+    elif selected_school_id != 'all':
+        sch = db.session.get(School, int(selected_school_id))
         if sch:
             active_school_name = sch.name
 
@@ -605,7 +615,11 @@ def index():
 @login_required
 def log_intervention(student_id):
     notes = request.form.get('notes', '').strip()
-    student = StudentRecord.query.get_or_404(student_id)
+    student = db.session.get(StudentRecord, student_id)
+
+    if not student:
+        flash("Student record not found.", "error")
+        return redirect(url_for('index'))
 
     if notes:
         intervention = Intervention(student_record_id=student.id, notes=notes)
@@ -618,7 +632,7 @@ def log_intervention(student_id):
     return redirect(url_for('index'))
 
 # ------------------------------------------------------------------------------
-# Admin Management Routes
+# Admin & Data Import Routes
 # ------------------------------------------------------------------------------
 @app.route('/admin/add_school', methods=['POST'])
 @admin_required
@@ -649,70 +663,81 @@ def add_user():
         return redirect(url_for('index'))
 
     if User.query.filter_by(username=username).first():
-        flash(f"User '{username}' already exists.", "error")
+        flash(f"Username '{username}' is already taken.", "error")
         return redirect(url_for('index'))
 
-    user = User(username=username, role=role)
+    user = User(
+        username=username,
+        role=role,
+        school_id=int(school_id) if school_id else None
+    )
     user.set_password(password)
-    
-    if school_id:
-        user.school_id = int(school_id)
-
     db.session.add(user)
     db.session.commit()
+    
     flash(f"User '{username}' created successfully.", "success")
+    return redirect(url_for('index'))
+
+@app.route('/admin/delete_user/<int:user_id>', methods=['POST'])
+@admin_required
+def delete_user(user_id):
+    user_to_delete = db.session.get(User, user_id)
+    current_user_id = session.get('user_id')
+
+    if not user_to_delete:
+        flash("User not found.", "error")
+        return redirect(url_for('index'))
+
+    if user_to_delete.id == current_user_id:
+        flash("You cannot delete your own logged-in account.", "error")
+        return redirect(url_for('index'))
+
+    username = user_to_delete.username
+    db.session.delete(user_to_delete)
+    db.session.commit()
+
+    flash(f"User '{username}' has been deleted.", "success")
     return redirect(url_for('index'))
 
 @app.route('/upload_csv', methods=['POST'])
 @login_required
 def upload_csv():
-    current_user = User.query.get(session['user_id'])
-    
-    # Determine target school
-    if current_user.role == 'Admin':
-        school_id = request.form.get('school_id')
-        if not school_id:
-            flash("Please select a target school for the CSV upload.", "error")
-            return redirect(url_for('index'))
-        target_school_id = int(school_id)
-    else:
-        if not current_user.school_id:
-            flash("User does not have an assigned school.", "error")
-            return redirect(url_for('index'))
-        target_school_id = current_user.school_id
+    current_user = db.session.get(User, session['user_id'])
+    target_school_id = request.form.get('school_id') if current_user.role == 'Admin' else current_user.school_id
+
+    if not target_school_id:
+        flash("Please select a target school for CSV import.", "error")
+        return redirect(url_for('index'))
 
     file = request.files.get('file')
     if not file or not file.filename.endswith('.csv'):
-        flash("Please select a valid CSV file.", "error")
+        flash("Valid CSV file is required.", "error")
         return redirect(url_for('index'))
 
     try:
-        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+        stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
         csv_reader = csv.DictReader(stream)
         
         imported_count = 0
         for row in csv_reader:
-            # Case-insensitive column key retrieval helper
-            def get_val(keys, default=None):
-                for k in keys:
-                    for key in row.keys():
-                        if key.strip().lower() == k.lower():
-                            return row[key].strip()
-                return default
-
-            student_id = get_val(['student_id', 'id', 'student id'])
-            name = get_val(['name', 'student_name', 'student name'])
-            grade = get_val(['grade'], 'N/A')
-            absences = float(get_val(['absences', 'total_absences'], 0.0))
-            unexcused = int(get_val(['unexcused_absences', 'unexcused'], 0))
-            tardies = int(get_val(['tardies'], 0))
-            total_days = float(get_val(['total_days'], 180.0))
-
+            # Flexible case-insensitive header mapping
+            clean_row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
+            
+            student_id = clean_row.get('student_id') or clean_row.get('id')
+            name = clean_row.get('name') or clean_row.get('student_name')
+            
             if not student_id or not name:
                 continue
 
-            # Calculate present FTE percentage
-            present_fte = max(0.0, ((total_days - absences) / total_days) * 100) if total_days > 0 else 0.0
+            grade = clean_row.get('grade', 'N/A')
+            absences = float(clean_row.get('absences', 0.0))
+            unexcused = int(clean_row.get('unexcused_absences', clean_row.get('unexcused', 0)))
+            tardies = int(clean_row.get('tardies', 0))
+            total_days = float(clean_row.get('total_days', 180.0))
+
+            # Automatically compute present_fte percentage
+            present_days = max(total_days - absences, 0.0)
+            present_fte = (present_days / total_days * 100.0) if total_days > 0 else 0.0
 
             # Update existing or create new record
             record = StudentRecord.query.filter_by(student_id=student_id, school_id=target_school_id).first()
@@ -739,17 +764,22 @@ def upload_csv():
     return redirect(url_for('index'))
 
 # ------------------------------------------------------------------------------
-# Initial Database Setup Helper
+# CLI Initialization Command
 # ------------------------------------------------------------------------------
+@app.cli.command('init-db')
 def init_db():
-    with app.app_context():
-        db.create_all()
-        if not User.query.filter_by(username='admin').first():
-            admin = User(username='admin', role='Admin')
-            admin.set_password('admin123')
-            db.session.add(admin)
-            db.session.commit()
+    """Seeds the database with tables and default Admin credentials."""
+    db.create_all()
+    if not User.query.filter_by(username='admin').first():
+        admin = User(username='admin', role='Admin')
+        admin.set_password('admin123')
+        db.session.add(admin)
+        db.session.commit()
+        print("Database initialized! Default admin account: admin / admin123")
+    else:
+        print("Database already initialized.")
 
 if __name__ == '__main__':
-    init_db()
+    with app.app_context():
+        db.create_all()
     app.run(debug=True)
