@@ -1,6 +1,7 @@
 import os
 import csv
 import io
+import math
 from datetime import datetime
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
@@ -139,19 +140,28 @@ INDEX_HTML = """
         .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.78rem; border-radius: 4px; }
         
         .filter-btn-group { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-        .filter-btn { background: var(--card); border: 1px solid var(--border); padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--muted); transition: all 0.15s ease; }
+        .filter-btn { background: var(--card); border: 1px solid var(--border); padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--muted); transition: all 0.15s ease; text-decoration: none; }
         .filter-btn:hover { background: var(--bg); color: var(--text); }
         .filter-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
         
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem; }
         th, td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
         th { background: #f8fafc; color: var(--muted); }
+        
+        /* Frontend Render Optimization */
+        .roster-row {
+            content-visibility: auto;
+            contain-intrinsic-size: 0 45px;
+        }
+
         .badge { padding: 0.25rem 0.625rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
         .badge-danger { background: var(--danger-bg); color: var(--danger-text); }
         .badge-success { background: var(--success-bg); color: var(--success-text); }
         .alert { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.875rem; }
         .alert-success { background: var(--success-bg); color: var(--success-text); border: 1px solid #bbf7d0; }
         .alert-error { background: var(--danger-bg); color: var(--danger-text); border: 1px solid #fecaca; }
+
+        .pagination-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); flex-wrap: wrap; gap: 1rem; }
 
         .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(2px); justify-content: center; align-items: center; }
         .modal-content { background: var(--card); width: 100%; max-width: 520px; border-radius: 12px; padding: 1.75rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); border: 1px solid var(--border); }
@@ -312,22 +322,28 @@ INDEX_HTML = """
         <div class="card">
             <div class="card-header">
                 <h3 class="card-title">Attendance Roster View</h3>
-                <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+                <form method="GET" action="/" style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; margin:0;">
+                    <input type="hidden" name="school_id" value="{{ selected_school_id }}">
+                    <input type="hidden" name="page" value="1">
+                    
                     <div class="filter-btn-group">
-                        <button class="filter-btn active" onclick="applyFilter('chronic', this)">Chronic Students (&lt;90%)</button>
-                        <button class="filter-btn" onclick="applyFilter('most-absences', this)">Most Absences</button>
-                        <button class="filter-btn" onclick="applyFilter('least-absences', this)">Least Absences</button>
+                        <a href="/?school_id={{ selected_school_id }}&filter=chronic&grade={{ selected_grade }}&search={{ search_query }}" class="filter-btn {% if selected_filter == 'chronic' %}active{% endif %}">Chronic Students (&lt;90%)</a>
+                        <a href="/?school_id={{ selected_school_id }}&filter=most-absences&grade={{ selected_grade }}&search={{ search_query }}" class="filter-btn {% if selected_filter == 'most-absences' %}active{% endif %}">Most Absences</a>
+                        <a href="/?school_id={{ selected_school_id }}&filter=least-absences&grade={{ selected_grade }}&search={{ search_query }}" class="filter-btn {% if selected_filter == 'least-absences' %}active{% endif %}">Least Absences</a>
                     </div>
 
-                    <select id="gradeSelect" onchange="applyFilter(currentFilter, null)" style="padding:0.5rem; font-size:0.85rem; font-weight:600; color:var(--muted); border-radius:6px; border:1px solid var(--border);">
-                        <option value="all">All Grade Levels</option>
+                    <input type="hidden" name="filter" value="{{ selected_filter }}">
+
+                    <select name="grade" onchange="this.form.submit()" style="padding:0.5rem; font-size:0.85rem; font-weight:600; color:var(--muted); border-radius:6px; border:1px solid var(--border);">
+                        <option value="all" {% if selected_grade == 'all' %}selected{% endif %}>All Grade Levels</option>
                         {% for g in available_grades %}
-                        <option value="{{ g }}">Grade {{ g }}</option>
+                        <option value="{{ g }}" {% if selected_grade == g %}selected{% endif %}>Grade {{ g }}</option>
                         {% endfor %}
                     </select>
 
-                    <input type="text" id="rosterSearch" onkeyup="applyFilter(currentFilter, null)" placeholder="Search name or ID..." style="width:200px;">
-                </div>
+                    <input type="text" name="search" value="{{ search_query }}" placeholder="Search name or ID..." style="width:200px;">
+                    <button type="submit" class="btn btn-outline btn-sm">Search</button>
+                </form>
             </div>
 
             <table>
@@ -344,12 +360,9 @@ INDEX_HTML = """
                         <th style="text-align:right;">Action</th>
                     </tr>
                 </thead>
-                <tbody id="rosterTableBody">
+                <tbody>
                     {% for student in students %}
-                    <tr class="roster-row" 
-                        data-chronic="{{ 'true' if student.is_chronic else 'false' }}"
-                        data-absences="{{ student.adjusted_absences }}"
-                        data-grade="{{ student.grade }}">
+                    <tr class="roster-row">
                         <td><strong>{{ student.student_id }}</strong></td>
                         <td class="student-name">{{ student.name }}</td>
                         <td><span class="badge" style="background:#e2e8f0; color:#334155;">{{ student.grade }}</span></td>
@@ -388,12 +401,30 @@ INDEX_HTML = """
                     {% else %}
                     <tr>
                         <td colspan="9" style="text-align: center; color: var(--muted); padding: 2rem;">
-                            No student record data available for this school scope.
+                            No student record data available for this view.
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+
+            <!-- Pagination Bar -->
+            {% if total_pages > 1 %}
+            <div class="pagination-bar">
+                <span style="font-size:0.875rem; color:var(--muted);">
+                    Page <strong>{{ current_page }}</strong> of <strong>{{ total_pages }}</strong> ({{ display_count }} active students matching filters)
+                </span>
+                <div style="display:flex; gap:0.5rem;">
+                    {% if current_page > 1 %}
+                    <a href="/?school_id={{ selected_school_id }}&filter={{ selected_filter }}&grade={{ selected_grade }}&search={{ search_query }}&page={{ current_page - 1 }}" class="btn btn-outline btn-sm">&laquo; Previous</a>
+                    {% endif %}
+                    
+                    {% if current_page < total_pages %}
+                    <a href="/?school_id={{ selected_school_id }}&filter={{ selected_filter }}&grade={{ selected_grade }}&search={{ search_query }}&page={{ current_page + 1 }}" class="btn btn-outline btn-sm">Next &raquo;</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
 
@@ -433,8 +464,6 @@ INDEX_HTML = """
     </div>
 
     <script>
-        let currentFilter = 'chronic';
-
         function openInterventionModal(studentId, name) {
             document.getElementById('modalStudentDbId').value = studentId;
             document.getElementById('modalStudentName').value = name;
@@ -444,52 +473,6 @@ INDEX_HTML = """
         function closeInterventionModal() {
             document.getElementById('interventionModal').style.display = 'none';
         }
-
-        function applyFilter(filterType, btnElement) {
-            currentFilter = filterType;
-            
-            if (btnElement) {
-                document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-                btnElement.classList.add('active');
-            }
-
-            const gradeFilter = document.getElementById('gradeSelect').value.toLowerCase();
-            const searchQuery = document.getElementById('rosterSearch').value.toLowerCase();
-            const tbody = document.getElementById('rosterTableBody');
-            const rows = Array.from(tbody.querySelectorAll('.roster-row'));
-
-            if (currentFilter === 'most-absences') {
-                rows.sort((a, b) => parseFloat(b.getAttribute('data-absences')) - parseFloat(a.getAttribute('data-absences')));
-            } else if (currentFilter === 'least-absences') {
-                rows.sort((a, b) => parseFloat(a.getAttribute('data-absences')) - parseFloat(b.getAttribute('data-absences')));
-            }
-
-            rows.forEach(row => tbody.appendChild(row));
-
-            rows.forEach(row => {
-                const isChronic = row.getAttribute('data-chronic') === 'true';
-                const rowGrade = row.getAttribute('data-grade').toLowerCase();
-                const rowText = row.innerText.toLowerCase();
-
-                let matchesFilter = true;
-                if (currentFilter === 'chronic') {
-                    matchesFilter = isChronic;
-                }
-
-                const matchesGrade = (gradeFilter === 'all') || (rowGrade === gradeFilter);
-                const matchesSearch = rowText.includes(searchQuery);
-
-                if (matchesFilter && matchesGrade && matchesSearch) {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
-            });
-        }
-
-        window.addEventListener('DOMContentLoaded', () => {
-            applyFilter('chronic', null);
-        });
     </script>
 </body>
 </html>
@@ -555,6 +538,11 @@ def index():
 
     schools = School.query.all()
     selected_school_id = request.args.get('school_id', 'all')
+    selected_filter = request.args.get('filter', 'chronic')
+    selected_grade = request.args.get('grade', 'all')
+    search_query = request.args.get('search', '').strip()
+    page = request.args.get('page', 1, type=int)
+    per_page = 50  # Limits DOM load to prevent browser freeze
 
     # Optimized Query with Eager Loading (Fixes N+1 Bottleneck)
     base_query = StudentRecord.query.options(
@@ -579,7 +567,7 @@ def index():
         records = base_query.filter_by(school_id=user.school_id).all()
         active_school_name = user.school.name if user.school else 'Assigned School'
 
-    students_data = []
+    all_parsed_students = []
     total_students = len(records)
     at_risk_count = 0
     grades_set = set()
@@ -612,7 +600,7 @@ def index():
             'timestamp': item.timestamp.strftime('%b %d, %Y %H:%M')
         } for item in r.interventions]
 
-        students_data.append({
+        all_parsed_students.append({
             'id': r.id,
             'student_id': r.student_id,
             'name': r.name,
@@ -628,17 +616,57 @@ def index():
 
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
 
+    # Server-Side Filtering
+    filtered_students = []
+    search_lower = search_query.lower()
+
+    for s in all_parsed_students:
+        # Filter Status
+        if selected_filter == 'chronic' and not s['is_chronic']:
+            continue
+        
+        # Filter Grade
+        if selected_grade != 'all' and s['grade'] != selected_grade:
+            continue
+
+        # Search Query
+        if search_query and (search_lower not in s['name'].lower() and search_lower not in s['student_id'].lower()):
+            continue
+
+        filtered_students.append(s)
+
+    # Server-Side Sorting
+    if selected_filter == 'most-absences':
+        filtered_students.sort(key=lambda x: x['adjusted_absences'], reverse=True)
+    elif selected_filter == 'least-absences':
+        filtered_students.sort(key=lambda x: x['adjusted_absences'])
+
+    # Server-Side Pagination
+    display_count = len(filtered_students)
+    total_pages = math.ceil(display_count / per_page) if display_count > 0 else 1
+    page = max(1, min(page, total_pages))
+    
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    paginated_students = filtered_students[start_idx:end_idx]
+
     return render_template_string(
         INDEX_HTML,
         current_user=user,
-        students=students_data,
+        students=paginated_students,
         schools=schools,
         total_students=total_students,
         at_risk_count=at_risk_count,
         chronic_rate=chronic_rate,
         selected_school_id=selected_school_id,
+        selected_filter=selected_filter,
+        selected_grade=selected_grade,
+        search_query=search_query,
         active_school_name=active_school_name,
-        available_grades=sorted(list(grades_set))
+        available_grades=sorted(list(grades_set)),
+        current_page=page,
+        total_pages=total_pages,
+        display_count=display_count
     )
 
 @app.route('/add_school', methods=['POST'])
@@ -696,7 +724,7 @@ def add_student():
     target_school_id = request.form.get('school_id') if user.role == 'Admin' else user.school_id
     target_school_id = int(target_school_id) if target_school_id else None
 
-    # Check if student exists to overwrite attendance or add new
+    # Overwrite attendance if student exists; preserve interventions
     existing = StudentRecord.query.filter_by(student_id=student_id, school_id=target_school_id).first()
     if existing:
         existing.name = name
@@ -740,7 +768,7 @@ def upload_csv():
     stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
     csv_reader = csv.DictReader(stream)
 
-    # Fetch existing students for this school so we overwrite metrics instead of deleting logs
+    # Fetch existing students for this school so metrics overwrite without deleting interventions
     existing_students = {
         s.student_id: s 
         for s in StudentRecord.query.filter_by(school_id=target_school_id).all()
