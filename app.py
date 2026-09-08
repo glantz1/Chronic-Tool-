@@ -86,44 +86,11 @@ LOGIN_HTML = """
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            color: #f8fafc;
-        }
-        .login-card {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 1rem;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        }
-        .form-control {
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            color: #f8fafc;
-            border-radius: 0.5rem;
-            padding: 0.75rem 1rem;
-        }
-        .form-control:focus {
-            background: rgba(15, 23, 42, 0.8);
-            border-color: #3b82f6;
-            color: #fff;
-            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.25);
-        }
-        .btn-primary-custom {
-            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-            border: none;
-            border-radius: 0.5rem;
-            padding: 0.75rem;
-            font-weight: 600;
-            color: white;
-            transition: all 0.2s;
-        }
-        .btn-primary-custom:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
-        }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #f8fafc; }
+        .login-card { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 1rem; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        .form-control { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.15); color: #f8fafc; border-radius: 0.5rem; padding: 0.75rem 1rem; }
+        .form-control:focus { background: rgba(15, 23, 42, 0.8); border-color: #3b82f6; color: #fff; }
+        .btn-primary-custom { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border: none; border-radius: 0.5rem; padding: 0.75rem; font-weight: 600; color: white; }
     </style>
 </head>
 <body class="d-flex align-items-center min-vh-100">
@@ -132,13 +99,9 @@ LOGIN_HTML = """
             <div class="col-md-5 col-lg-4">
                 <div class="card login-card p-4 p-md-5">
                     <div class="text-center mb-4">
-                        <div class="d-inline-flex align-items-center justify-content-center bg-primary bg-opacity-20 text-primary rounded-circle mb-3" style="width: 56px; height: 56px;">
-                            <svg width="28" height="28" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-                        </div>
                         <h4 class="fw-bold text-white mb-1">Attendance Tracker</h4>
                         <p class="text-secondary small mb-0">Sign in to access your dashboard</p>
                     </div>
-
                     {% with messages = get_flashed_messages(with_categories=true) %}
                         {% if messages %}
                             {% for category, message in messages %}
@@ -148,7 +111,6 @@ LOGIN_HTML = """
                             {% endfor %}
                         {% endif %}
                     {% endwith %}
-
                     <form action="{{ url_for('login') }}" method="POST">
                         <div class="mb-3">
                             <label class="form-label text-secondary small fw-medium">Username</label>
@@ -178,170 +140,71 @@ INDEX_HTML = """
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --bg-body: #f8fafc;
-            --card-bg: #ffffff;
-            --border-color: #e2e8f0;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-        }
-        body {
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            background-color: var(--bg-body);
-            color: var(--text-main);
-        }
-        .navbar-custom {
-            background-color: #0f172a;
-            border-bottom: 1px solid #1e293b;
-        }
-        .stat-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 0.75rem;
-            padding: 1.25rem;
-            transition: all 0.2s ease-in-out;
-        }
-        .stat-card:hover {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
-            transform: translateY(-2px);
-        }
-        .stat-icon {
-            width: 44px;
-            height: 44px;
-            border-radius: 0.5rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .card-custom {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 0.75rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
-        }
-        .table-custom {
-            margin-bottom: 0;
-        }
-        .table-custom th {
-            background-color: #f1f5f9;
-            color: #475569;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            font-weight: 700;
-            padding: 0.85rem 1rem;
-            border-bottom: 1px solid var(--border-color);
-        }
-        .table-custom td {
-            padding: 1rem;
-            vertical-align: middle;
-            border-bottom: 1px solid var(--border-color);
-            color: #334155;
-            font-size: 0.875rem;
-        }
-        .badge-status {
-            padding: 0.35em 0.65em;
-            font-size: 0.75rem;
-            font-weight: 600;
-            border-radius: 0.375rem;
-        }
-        .badge-chronic { background-color: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-        .badge-ontrack { background-color: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
-        .btn-action {
-            font-size: 0.8125rem;
-            font-weight: 500;
-            border-radius: 0.375rem;
-            padding: 0.4rem 0.75rem;
-        }
+        :root { --bg-body: #f8fafc; --card-bg: #ffffff; --border-color: #e2e8f0; --text-main: #0f172a; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: var(--bg-body); color: var(--text-main); }
+        .navbar-custom { background-color: #0f172a; border-bottom: 1px solid #1e293b; }
+        .stat-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1.25rem; }
+        .card-custom { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 0.75rem; }
+        .table-custom th { background-color: #f1f5f9; color: #475569; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; padding: 0.85rem 1rem; border-bottom: 1px solid var(--border-color); }
+        .table-custom td { padding: 1rem; vertical-align: middle; border-bottom: 1px solid var(--border-color); font-size: 0.875rem; }
+        .badge-chronic { background-color: #fef2f2; color: #dc2626; border: 1px solid #fecaca; padding: 0.35em 0.65em; font-size: 0.75rem; border-radius: 0.375rem; font-weight: 600; }
+        .badge-ontrack { background-color: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; padding: 0.35em 0.65em; font-size: 0.75rem; border-radius: 0.375rem; font-weight: 600; }
+        .btn-action { font-size: 0.8125rem; font-weight: 500; border-radius: 0.375rem; padding: 0.4rem 0.75rem; }
     </style>
 </head>
 <body>
 
-    <!-- Header Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark navbar-custom sticky-top">
         <div class="container-fluid px-4">
-            <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="#">
-                <span class="bg-primary rounded p-1 d-inline-flex">
-                    <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-                </span>
-                Attendance Pulse
-            </a>
-            <div class="d-flex align-items-center gap-3">
-                <div class="text-end text-light d-none d-sm-block">
-                    <div class="fw-semibold fs-7">{{ current_user.username }}</div>
-                    <div class="text-secondary small" style="font-size: 0.75rem;">Role: {{ current_user.role }}</div>
-                </div>
+            <a class="navbar-brand fw-bold" href="#">Attendance Pulse</a>
+            <div class="d-flex align-items-center gap-3 text-light">
+                <span class="small">{{ current_user.username }} ({{ current_user.role }})</span>
                 <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm btn-action">Sign Out</a>
             </div>
         </div>
     </nav>
 
     <div class="container-fluid px-4 py-4">
-
-        <!-- Flash Messages -->
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
                     <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show border-0 shadow-sm mb-4" role="alert">
                         {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                     </div>
                 {% endfor %}
             {% endif %}
         {% endwith %}
 
-        <!-- KPI Summary Cards -->
+        <!-- KPIs -->
         <div class="row g-3 mb-4">
             <div class="col-12 col-sm-6 col-xl-3">
-                <div class="stat-card d-flex align-items-center justify-content-between">
-                    <div>
-                        <div class="text-muted small fw-medium">Active School</div>
-                        <div class="h5 fw-bold mb-0 text-truncate" style="max-width: 180px;">{{ active_school_name }}</div>
-                    </div>
-                    <div class="stat-icon bg-primary bg-opacity-10 text-primary">
-                        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5m0 0h4m-4 0V11m0 0h4m-4 0H9m4 0V7m0 0h4m-4 0H9"></path></svg>
-                    </div>
+                <div class="stat-card">
+                    <div class="text-muted small fw-medium">Active School</div>
+                    <div class="h5 fw-bold mb-0 text-truncate">{{ active_school_name }}</div>
                 </div>
             </div>
-
             <div class="col-12 col-sm-6 col-xl-3">
-                <div class="stat-card d-flex align-items-center justify-content-between">
-                    <div>
-                        <div class="text-muted small fw-medium">Total Students</div>
-                        <div class="h3 fw-bold mb-0">{{ total_students }}</div>
-                    </div>
-                    <div class="stat-icon bg-info bg-opacity-10 text-info">
-                        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                    </div>
+                <div class="stat-card">
+                    <div class="text-muted small fw-medium">Total Students</div>
+                    <div class="h3 fw-bold mb-0">{{ total_students }}</div>
                 </div>
             </div>
-
             <div class="col-12 col-sm-6 col-xl-3">
-                <div class="stat-card d-flex align-items-center justify-content-between">
-                    <div>
-                        <div class="text-muted small fw-medium">Chronically Absent</div>
-                        <div class="h3 fw-bold mb-0 text-danger">{{ at_risk_count }}</div>
-                    </div>
-                    <div class="stat-icon bg-danger bg-opacity-10 text-danger">
-                        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                    </div>
+                <div class="stat-card">
+                    <div class="text-muted small fw-medium">Chronically Absent</div>
+                    <div class="h3 fw-bold mb-0 text-danger">{{ at_risk_count }}</div>
                 </div>
             </div>
-
             <div class="col-12 col-sm-6 col-xl-3">
-                <div class="stat-card d-flex align-items-center justify-content-between">
-                    <div>
-                        <div class="text-muted small fw-medium">Chronic Rate</div>
-                        <div class="h3 fw-bold mb-0">{{ "%.1f"|format(chronic_rate) }}%</div>
-                    </div>
-                    <div class="stat-icon bg-warning bg-opacity-10 text-warning">
-                        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
-                    </div>
+                <div class="stat-card">
+                    <div class="text-muted small fw-medium">Chronic Rate</div>
+                    <div class="h3 fw-bold mb-0">{{ "%.1f"|format(chronic_rate) }}%</div>
                 </div>
             </div>
         </div>
 
-        <!-- Toolbar / Action Hub -->
+        <!-- Action Bar -->
         <div class="card-custom p-3 mb-4">
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
                 <div class="d-flex flex-wrap gap-2">
@@ -353,15 +216,12 @@ INDEX_HTML = """
                     {% endif %}
                 </div>
                 {% if current_user.role == 'Admin' %}
-                <div>
                     <button class="btn btn-outline-danger btn-action" data-bs-toggle="modal" data-bs-target="#clearDataModal">Clear Data</button>
-                </div>
                 {% endif %}
             </div>
 
             <hr class="my-3" style="border-color: var(--border-color);">
 
-            <!-- Filter and Search Form -->
             <form method="GET" action="{{ url_for('index') }}" class="row g-2">
                 {% if current_user.role == 'Admin' %}
                 <div class="col-12 col-sm-6 col-md-3">
@@ -403,7 +263,7 @@ INDEX_HTML = """
             </form>
         </div>
 
-        <!-- Student Records Data Table -->
+        <!-- Student Data Table -->
         <div class="card-custom overflow-hidden">
             <div class="table-responsive">
                 <table class="table table-custom">
@@ -424,16 +284,22 @@ INDEX_HTML = """
                         {% for s in students %}
                         <tr>
                             <td class="fw-semibold text-secondary">{{ s.student_id }}</td>
-                            <td class="fw-bold text-dark">{{ s.name }}</td>
+                            <td class="fw-bold">{{ s.name }}</td>
                             <td><span class="badge bg-light text-dark border">{{ s.grade }}</span></td>
-                            <td>{{ s.school_name }}</td>
-                            <td>{{ "%.1f"|format(s.adjusted_absences) }}</td>
-                            <td class="fw-semibold">{{ "%.1f"|format(s.present_fte_pct) }}%</td>
-                            <td>
-                                {% if s.is_chronic %}
-                                    <span class="badge-status badge-chronic">Chronic</span>
+                            <td>{{ s.school.name if s.school else 'N/A' }}</td>
+                            <td>{{ "%.1f"|format(s.absences) }}</td>
+                            <td class="fw-semibold">
+                                {% if s.present_fte %}
+                                    {{ "%.1f"|format(s.present_fte * 100) }}%
                                 {% else %}
-                                    <span class="badge-status badge-ontrack">On Track</span>
+                                    {{ "%.1f"|format(((s.total_days - s.absences) / s.total_days) * 100) }}%
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if (s.absences / s.total_days) >= 0.10 %}
+                                    <span class="badge-chronic">Chronic</span>
+                                {% else %}
+                                    <span class="badge-ontrack">On Track</span>
                                 {% endif %}
                             </td>
                             <td>
@@ -446,7 +312,7 @@ INDEX_HTML = """
                             </td>
                         </tr>
 
-                        <!-- Intervention Modal per Student -->
+                        <!-- Intervention Modal -->
                         <div class="modal fade" id="interventionModal{{ s.id }}" tabindex="-1">
                             <div class="modal-dialog modal-dialog-centered">
                                 <div class="modal-content border-0 shadow">
@@ -469,7 +335,7 @@ INDEX_HTML = """
                                             </div>
                                             <div class="mb-3">
                                                 <label class="form-label small fw-semibold text-secondary">Notes</label>
-                                                <textarea name="notes" class="form-control form-control-sm" rows="3" placeholder="Log details of the conversation or meeting..."></textarea>
+                                                <textarea name="notes" class="form-control form-control-sm" rows="3" placeholder="Log details..."></textarea>
                                             </div>
                                             <div class="fw-semibold small text-dark mb-2">Previous Logs</div>
                                             <div class="list-group list-group-flush border rounded overflow-auto" style="max-height: 180px;">
@@ -496,16 +362,13 @@ INDEX_HTML = """
                         </div>
                         {% else %}
                         <tr>
-                            <td colspan="9" class="text-center py-5 text-muted">
-                                <div>No student records matched your filter criteria.</div>
-                            </td>
+                            <td colspan="9" class="text-center py-5 text-muted">No student records matched your criteria.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
 
-            <!-- Footer Pagination -->
             {% if total_pages > 1 %}
             <div class="p-3 border-top d-flex justify-content-between align-items-center">
                 <span class="text-muted small">Showing {{ display_count }} total entries</span>
@@ -547,7 +410,7 @@ INDEX_HTML = """
                         <div class="mb-3">
                             <label class="form-label small fw-semibold text-secondary">CSV File</label>
                             <input type="file" name="file" class="form-control form-control-sm" accept=".csv" required>
-                            <div class="form-text small">Accepted columns: Student_ID, Name, Grade, Absences, Tardies, Present_FTE.</div>
+                            <div class="form-text small">Headers required: Student_ID, Name, Grade, Absences, Tardies, Present_FTE.</div>
                         </div>
                     </div>
                     <div class="modal-footer border-top-0 pt-0">
@@ -586,23 +449,19 @@ INDEX_HTML = """
                             <label class="form-label small fw-semibold text-secondary">Full Name</label>
                             <input type="text" name="name" class="form-control form-control-sm" required>
                         </div>
-                        <div class="mb-3">
-                            <label class="form-label small fw-semibold text-secondary">Grade</label>
-                            <input type="text" name="grade" class="form-control form-control-sm" required>
-                        </div>
                         <div class="row g-2 mb-3">
                             <div class="col-6">
-                                <label class="form-label small fw-semibold text-secondary">Absences</label>
-                                <input type="number" step="0.5" name="absences" class="form-control form-control-sm" value="0.0">
+                                <label class="form-label small fw-semibold text-secondary">Grade</label>
+                                <input type="text" name="grade" class="form-control form-control-sm" required>
                             </div>
                             <div class="col-6">
-                                <label class="form-label small fw-semibold text-secondary">Tardies</label>
-                                <input type="number" name="tardies" class="form-control form-control-sm" value="0">
+                                <label class="form-label small fw-semibold text-secondary">Absences</label>
+                                <input type="number" step="0.5" name="absences" value="0.0" class="form-control form-control-sm" required>
                             </div>
                         </div>
                     </div>
                     <div class="modal-footer border-top-0 pt-0">
-                        <button type="submit" class="btn btn-primary btn-action w-100">Save Student</button>
+                        <button type="submit" class="btn btn-primary btn-action w-100">Create Student</button>
                     </div>
                 </form>
             </div>
@@ -616,7 +475,7 @@ INDEX_HTML = """
             <div class="modal-content border-0 shadow">
                 <form action="{{ url_for('add_school') }}" method="POST">
                     <div class="modal-header border-bottom-0 pb-0">
-                        <h5 class="modal-title fw-bold">Create School</h5>
+                        <h5 class="modal-title fw-bold">Add School</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
@@ -630,7 +489,7 @@ INDEX_HTML = """
                         </div>
                     </div>
                     <div class="modal-footer border-top-0 pt-0">
-                        <button type="submit" class="btn btn-primary btn-action w-100">Create</button>
+                        <button type="submit" class="btn btn-primary btn-action w-100">Add School</button>
                     </div>
                 </form>
             </div>
@@ -643,7 +502,7 @@ INDEX_HTML = """
             <div class="modal-content border-0 shadow">
                 <form action="{{ url_for('add_user') }}" method="POST">
                     <div class="modal-header border-bottom-0 pb-0">
-                        <h5 class="modal-title fw-bold">Create User</h5>
+                        <h5 class="modal-title fw-bold">Add Staff User</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
@@ -657,15 +516,15 @@ INDEX_HTML = """
                         </div>
                         <div class="mb-3">
                             <label class="form-label small fw-semibold text-secondary">Role</label>
-                            <select name="role" class="form-select form-select-sm" required>
+                            <select name="role" class="form-select form-select-sm">
                                 <option value="Staff">Staff</option>
                                 <option value="Admin">Admin</option>
                             </select>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label small fw-semibold text-secondary">Assigned School</label>
+                            <label class="form-label small fw-semibold text-secondary">Assign School</label>
                             <select name="school_id" class="form-select form-select-sm">
-                                <option value="">None (Global)</option>
+                                <option value="">None (Global / Admin)</option>
                                 {% for sch in schools %}
                                     <option value="{{ sch.id }}">{{ sch.name }}</option>
                                 {% endfor %}
@@ -680,7 +539,7 @@ INDEX_HTML = """
         </div>
     </div>
 
-    <!-- Clear Data Modal -->
+    <!-- Clear Data -->
     <div class="modal fade" id="clearDataModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content border-0 shadow">
@@ -689,12 +548,11 @@ INDEX_HTML = """
                         <h5 class="modal-title fw-bold text-danger">Clear All Data</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
-                    <div class="modal-body">
-                        <p class="small text-secondary mb-0">Are you sure you want to erase student records and interventions? This action cannot be undone.</p>
+                    <div class="modal-body text-secondary small">
+                        Are you sure you want to erase student and intervention records? This action cannot be undone.
                     </div>
-                    <div class="modal-footer border-top-0 pt-2">
-                        <button type="button" class="btn btn-light btn-action" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-danger btn-action">Confirm Erase</button>
+                    <div class="modal-footer border-top-0 pt-0">
+                        <button type="submit" class="btn btn-danger btn-action w-100">Delete Records</button>
                     </div>
                 </form>
             </div>
@@ -702,29 +560,34 @@ INDEX_HTML = """
     </div>
     {% endif %}
 
-    <script href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 """
 
 # -----------------------------------------------------------------------------
-# Helpers & Auth Decorator
+# Decorators & Auth Helpers
 # -----------------------------------------------------------------------------
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
+            flash("Please sign in to access this page.", "error")
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
 
-def get_current_user():
-    if 'user_id' in session:
-        return User.query.get(session['user_id'])
-    return None
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if session.get('role') != 'Admin':
+            flash("Administrator privileges required.", "error")
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 # -----------------------------------------------------------------------------
-# Routes
+# Controller Routes
 # -----------------------------------------------------------------------------
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -735,46 +598,42 @@ def login():
         
         if user and check_password_hash(user.password_hash, password):
             session['user_id'] = user.id
-            flash('Signed in successfully.', 'success')
+            session['username'] = user.username
+            session['role'] = user.role
+            session['school_id'] = user.school_id
             return redirect(url_for('index'))
-        else:
-            flash('Invalid username or password.', 'error')
-            
+        
+        flash("Invalid username or password.", "error")
     return render_template_string(LOGIN_HTML)
 
 @app.route('/logout')
 def logout():
     session.clear()
-    flash('Logged out successfully.', 'info')
+    flash("Successfully signed out.", "info")
     return redirect(url_for('login'))
 
 @app.route('/')
 @login_required
 def index():
-    user = get_current_user()
+    user = User.query.get(session['user_id'])
     
-    # Query Parameters
+    # URL parameters
     selected_school_id = request.args.get('school_id', 'all')
     selected_grade = request.args.get('grade', 'all')
     selected_filter = request.args.get('filter', 'all')
     search_query = request.args.get('q', '').strip()
     page = request.args.get('page', 1, type=int)
-    per_page = 15
 
-    # School Scope Determination
-    schools = School.query.all()
-    if user.role != 'Admin' and user.school_id:
-        active_school = School.query.get(user.school_id)
-        active_school_name = active_school.name if active_school else 'N/A'
-        query = StudentRecord.query.filter_by(school_id=user.school_id)
-    else:
-        if selected_school_id != 'all':
-            active_school = School.query.get(int(selected_school_id))
-            active_school_name = active_school.name if active_school else 'Selected School'
-            query = StudentRecord.query.filter_by(school_id=int(selected_school_id))
-        else:
-            active_school_name = 'All System Schools'
-            query = StudentRecord.query
+    # Scoping Base Queries
+    query = StudentRecord.query
+
+    # Enforce School boundary for non-admin staff
+    if user.role != 'Admin':
+        if user.school_id:
+            query = query.filter_by(school_id=user.school_id)
+            selected_school_id = str(user.school_id)
+    elif selected_school_id != 'all':
+        query = query.filter_by(school_id=int(selected_school_id))
 
     # Apply Grade Filter
     if selected_grade != 'all':
@@ -783,270 +642,227 @@ def index():
     # Apply Search Filter
     if search_query:
         query = query.filter(
-            (StudentRecord.name.ilike(f'%{search_query}%')) | 
-            (StudentRecord.student_id.ilike(f'%{search_query}%'))
+            (StudentRecord.name.ilike(f"%{search_query}%")) | 
+            (StudentRecord.student_id.ilike(f"%{search_query}%"))
         )
 
-    # Calculate Attendance KPI & Statuses
-    all_filtered = query.all()
-    
-    processed_students = []
-    for s in all_filtered:
-        # Tardies count as 0.25 absences rule
-        adj_absences = s.absences + (s.tardies * 0.25)
-        
-        if s.present_fte is not None:
-            fte_pct = s.present_fte * 100.0
-        else:
-            fte_pct = max(0.0, ((s.total_days - adj_absences) / s.total_days) * 100.0) if s.total_days > 0 else 0.0
-
-        is_chronic = fte_pct < 90.0
-
-        processed_students.append({
-            'id': s.id,
-            'student_id': s.student_id,
-            'name': s.name,
-            'grade': s.grade,
-            'school_name': s.school.name if s.school else 'N/A',
-            'adjusted_absences': adj_absences,
-            'present_fte_pct': fte_pct,
-            'is_chronic': is_chronic,
-            'interventions': s.interventions
-        })
-
-    # Summary Stats
-    total_students = len(processed_students)
-    at_risk_count = sum(1 for s in processed_students if s['is_chronic'])
-    chronic_rate = (at_risk_count / total_students * 100.0) if total_students > 0 else 0.0
-
-    # Apply Custom Filtering/Sorting
+    # Apply Status Filters
     if selected_filter == 'chronic':
-        processed_students = [s for s in processed_students if s['is_chronic']]
+        query = query.filter((StudentRecord.absences / StudentRecord.total_days) >= 0.10)
     elif selected_filter == 'most-absences':
-        processed_students.sort(key=lambda x: x['adjusted_absences'], reverse=True)
+        query = query.order_by(StudentRecord.absences.desc())
     elif selected_filter == 'least-absences':
-        processed_students.sort(key=lambda x: x['adjusted_absences'])
+        query = query.order_by(StudentRecord.absences.asc())
 
-    # Manual Pagination
-    display_count = len(processed_students)
-    total_pages = math.ceil(display_count / per_page) if display_count > 0 else 1
-    start_idx = (page - 1) * per_page
-    end_idx = start_idx + per_page
-    paginated_students = processed_students[start_idx:end_idx]
+    # Calculate KPI Stats before Pagination
+    total_students = query.count()
+    at_risk_count = query.filter((StudentRecord.absences / StudentRecord.total_days) >= 0.10).count()
+    chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
 
-    # Unique available grades dropdown values
-    available_grades = sorted(list(set([s.grade for s in StudentRecord.query.all()])))
+    # Paginate Results
+    per_page = 25
+    total_pages = math.ceil(total_students / per_page) if total_students > 0 else 1
+    students = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    # Dropdown contextual data
+    schools = School.query.all()
+    available_grades = [g[0] for g in db.session.query(StudentRecord.grade).distinct().all() if g[0]]
+
+    # Name for Active School Badge
+    if selected_school_id != 'all':
+        sch = School.query.get(int(selected_school_id))
+        active_school_name = sch.name if sch else "All Schools"
+    else:
+        active_school_name = "All Schools"
 
     return render_template_string(
         INDEX_HTML,
         current_user=user,
+        students=students,
         schools=schools,
-        students=paginated_students,
-        active_school_name=active_school_name,
+        available_grades=sorted(available_grades),
         total_students=total_students,
         at_risk_count=at_risk_count,
         chronic_rate=chronic_rate,
+        active_school_name=active_school_name,
         selected_school_id=selected_school_id,
         selected_grade=selected_grade,
         selected_filter=selected_filter,
         search_query=search_query,
-        available_grades=available_grades,
-        display_count=display_count,
+        current_page=page,
         total_pages=total_pages,
-        current_page=page
+        display_count=len(students)
     )
+
+@app.route('/log_intervention', methods=['POST'])
+@login_required
+def log_intervention():
+    student_db_id = request.form.get('student_db_id')
+    action_type = request.form.get('action_type')
+    notes = request.form.get('notes')
+    logged_by = session.get('username', 'Staff')
+
+    if not student_db_id or not action_type:
+        flash("Failed to log intervention: Missing required parameters.", "error")
+        return redirect(url_for('index'))
+
+    intervention = Intervention(
+        student_record_id=int(student_db_id),
+        action_type=action_type,
+        notes=notes,
+        logged_by=logged_by,
+        timestamp=datetime.utcnow()
+    )
+
+    db.session.add(intervention)
+    db.session.commit()
+
+    flash("Intervention recorded successfully!", "success")
+    return redirect(url_for('index'))
 
 @app.route('/upload_csv', methods=['POST'])
 @login_required
 def upload_csv():
-    user = get_current_user()
     file = request.files.get('file')
+    user = User.query.get(session['user_id'])
     
+    school_id = user.school_id
     if user.role == 'Admin':
-        school_id = request.form.get('school_id')
-    else:
-        school_id = user.school_id
+        school_id = request.form.get('school_id', user.school_id)
 
     if not school_id:
-        flash('Target school must be specified.', 'error')
+        flash("Please assign or select a school before uploading records.", "error")
         return redirect(url_for('index'))
 
-    if file and file.filename.endswith('.csv'):
-        stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
-        csv_reader = csv.DictReader(stream)
-        
-        imported_count = 0
-        for row in csv_reader:
-            student_id = row.get('Student_ID') or row.get('student_id')
-            name = row.get('Name') or row.get('name')
-            if not student_id or not name:
-                continue
+    if not file or not file.filename.endswith('.csv'):
+        flash("Invalid file form format. Please upload a .csv file.", "error")
+        return redirect(url_for('index'))
 
-            grade = row.get('Grade') or row.get('grade') or 'N/A'
-            absences = float(row.get('Absences') or row.get('absences') or 0.0)
-            tardies = int(row.get('Tardies') or row.get('tardies') or 0)
-            present_fte = row.get('Present_FTE') or row.get('present_fte')
-            present_fte = float(present_fte) if present_fte else None
+    stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
+    csv_input = csv.DictReader(stream)
 
-            existing = StudentRecord.query.filter_by(student_id=student_id, school_id=school_id).first()
-            if existing:
-                existing.name = name
-                existing.grade = grade
-                existing.absences = absences
-                existing.tardies = tardies
-                existing.present_fte = present_fte
-            else:
-                record = StudentRecord(
-                    student_id=student_id,
-                    name=name,
-                    grade=grade,
-                    school_id=school_id,
-                    absences=absences,
-                    tardies=tardies,
-                    present_fte=present_fte
-                )
-                db.session.add(record)
-            imported_count += 1
+    count = 0
+    for row in csv_input:
+        # Map common header key variations cleanly
+        s_id = row.get('Student_ID') or row.get('student_id') or row.get('ID')
+        name = row.get('Name') or row.get('name')
+        grade = row.get('Grade') or row.get('grade') or 'N/A'
+        absences = float(row.get('Absences', 0.0) or 0.0)
+        tardies = int(row.get('Tardies', 0) or 0)
+        present_fte = float(row.get('Present_FTE', 1.0) or 1.0)
 
-        db.session.commit()
-        flash(f'Successfully imported {imported_count} records.', 'success')
-    else:
-        flash('Invalid file format. Please upload a CSV.', 'error')
+        if s_id and name:
+            record = StudentRecord(
+                student_id=str(s_id),
+                name=name,
+                grade=str(grade),
+                school_id=int(school_id),
+                absences=absences,
+                tardies=tardies,
+                present_fte=present_fte
+            )
+            db.session.add(record)
+            count += 1
 
+    db.session.commit()
+    flash(f"Successfully processed {count} student records.", "success")
     return redirect(url_for('index'))
 
 @app.route('/add_student', methods=['POST'])
 @login_required
 def add_student():
-    user = get_current_user()
-    school_id = request.form.get('school_id') if user.role == 'Admin' else user.school_id
+    user = User.query.get(session['user_id'])
+    school_id = user.school_id if user.role != 'Admin' else request.form.get('school_id')
 
     if not school_id:
-        flash('A valid school must be specified to add a student.', 'error')
+        flash("Target school allocation is missing.", "error")
         return redirect(url_for('index'))
 
     student_id = request.form.get('student_id')
     name = request.form.get('name')
     grade = request.form.get('grade', 'N/A')
     absences = float(request.form.get('absences', 0.0))
-    tardies = int(request.form.get('tardies', 0))
 
     record = StudentRecord(
         student_id=student_id,
         name=name,
         grade=grade,
-        school_id=school_id,
         absences=absences,
-        tardies=tardies
+        school_id=int(school_id)
     )
     db.session.add(record)
     db.session.commit()
-    flash('Student added successfully.', 'success')
-    return redirect(url_for('index'))
 
-@app.route('/log_intervention', methods=['POST'])
-@login_required
-def log_intervention():
-    user = get_current_user()
-    student_db_id = request.form.get('student_db_id')
-    action_type = request.form.get('action_type')
-    notes = request.form.get('notes')
-
-    intervention = Intervention(
-        student_record_id=student_db_id,
-        action_type=action_type,
-        notes=notes,
-        logged_by=user.username
-    )
-    db.session.add(intervention)
-    db.session.commit()
-    flash('Intervention recorded.', 'success')
+    flash("Student created successfully.", "success")
     return redirect(url_for('index'))
 
 @app.route('/add_school', methods=['POST'])
 @login_required
+@admin_required
 def add_school():
-    user = get_current_user()
-    if user.role != 'Admin':
-        flash('Unauthorized action.', 'error')
-        return redirect(url_for('index'))
-
     name = request.form.get('name')
     code = request.form.get('code')
-
+    
     try:
         sch = School(name=name, code=code)
         db.session.add(sch)
         db.session.commit()
-        flash('School created successfully.', 'success')
+        flash("School added successfully.", "success")
     except IntegrityError:
         db.session.rollback()
-        flash('School name or code already exists.', 'error')
+        flash("A school with that name or code already exists.", "error")
 
     return redirect(url_for('index'))
 
 @app.route('/add_user', methods=['POST'])
 @login_required
+@admin_required
 def add_user():
-    user = get_current_user()
-    if user.role != 'Admin':
-        flash('Unauthorized action.', 'error')
-        return redirect(url_for('index'))
-
     username = request.form.get('username')
     password = request.form.get('password')
     role = request.form.get('role', 'Staff')
-    school_id = request.form.get('school_id')
-    school_id = int(school_id) if school_id else None
+    school_id = request.form.get('school_id') or None
 
     try:
-        pw_hash = generate_password_hash(password)
-        new_user = User(username=username, password_hash=pw_hash, role=role, school_id=school_id)
-        db.session.add(new_user)
+        usr = User(
+            username=username,
+            password_hash=generate_password_hash(password),
+            role=role,
+            school_id=int(school_id) if school_id else None
+        )
+        db.session.add(usr)
         db.session.commit()
-        flash('User account created.', 'success')
+        flash("User created successfully.", "success")
     except IntegrityError:
         db.session.rollback()
-        flash('Username already exists.', 'error')
+        flash("Username is already taken.", "error")
 
     return redirect(url_for('index'))
 
 @app.route('/clear_data', methods=['POST'])
 @login_required
+@admin_required
 def clear_data():
-    user = get_current_user()
-    if user.role != 'Admin':
-        flash('Unauthorized action.', 'error')
-        return redirect(url_for('index'))
-
-    StudentRecord.query.delete()
-    Intervention.query.delete()
+    db.session.query(Intervention).delete()
+    db.session.query(StudentRecord).delete()
     db.session.commit()
-    flash('All student records and interventions deleted.', 'success')
+    flash("Database wiped successfully.", "info")
     return redirect(url_for('index'))
 
 # -----------------------------------------------------------------------------
-# Database Setup & Default Admin Initialization
+# Database Initializer
 # -----------------------------------------------------------------------------
-def init_db():
-    with app.app_context():
-        db.create_all()
-        # Create default Admin if no users exist
-        if User.query.count() == 0:
-            default_school = School(name="Central High School", code="CHS01")
-            db.session.add(default_school)
-            db.session.commit()
-
-            admin_user = User(
-                username="admin",
-                password_hash=generate_password_hash("admin123"),
-                role="Admin",
-                school_id=default_school.id
-            )
-            db.session.add(admin_user)
-            db.session.commit()
-
-init_db()
+with app.app_context():
+    db.create_all()
+    # Ensure default Admin account exists
+    if not User.query.filter_by(username='admin').first():
+        default_admin = User(
+            username='admin',
+            password_hash=generate_password_hash('admin123'),
+            role='Admin'
+        )
+        db.session.add(default_admin)
+        db.session.commit()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
+    app.run(debug=True)
