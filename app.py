@@ -33,7 +33,7 @@ db = SQLAlchemy(app)
 # Database Models
 # -----------------------------------------------------------------------------
 class School(db.Model):
-    __tablename__ = 'schools'
+    __tablename__ = 'school'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
     code = db.Column(db.String(20), nullable=False, unique=True)
@@ -41,7 +41,7 @@ class School(db.Model):
     students = db.relationship('StudentRecord', backref='school', lazy=True, cascade="all, delete-orphan")
 
 class User(db.Model):
-    __tablename__ = 'users'
+    __tablename__ = 'user'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), nullable=False, unique=True)
     password_hash = db.Column(db.String(255), nullable=False)
@@ -49,7 +49,7 @@ class User(db.Model):
     school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=True)
 
 class StudentRecord(db.Model):
-    __tablename__ = 'student_records'
+    __tablename__ = 'student_record'
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(100), nullable=False)
@@ -62,7 +62,7 @@ class StudentRecord(db.Model):
     interventions = db.relationship('Intervention', backref='student', lazy=True, cascade="all, delete-orphan")
 
 class Intervention(db.Model):
-    __tablename__ = 'interventions'
+    __tablename__ = 'intervention'
     id = db.Column(db.Integer, primary_key=True)
     student_record_id = db.Column(db.Integer, db.ForeignKey('student_records.id'), nullable=False)
     action_type = db.Column(db.String(50), nullable=False)
