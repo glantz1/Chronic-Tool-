@@ -947,6 +947,26 @@ def add_user():
 
     return redirect(url_for('index'))
 
+@app.route('/delete_user/<int:user_id>', methods=['POST'])
+@login_required
+def delete_user(user_id):
+    # Restrict deletion permission if needed (e.g., Admin only)
+    if current_user.role != 'Admin':
+        flash('You do not have permission to delete users.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    user = User.query.get_or_404(user_id)
+    
+    # Prevent self-deletion
+    if user.id == current_user.id:
+        flash('You cannot delete your own account.', 'warning')
+        return redirect(url_for('manage_users'))
+
+    db.session.delete(user)
+    db.session.commit()
+    flash(f'User {user.username} deleted successfully.', 'success')
+    return redirect(url_for('manage_users'))
+
 @app.route('/add_student', methods=['POST'])
 def add_student():
     user = get_current_user()
