@@ -11,8 +11,8 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///attendance.db'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -51,7 +51,7 @@ class StudentRecord(db.Model):
     absences = db.Column(db.Float, default=0.0)
     tardies = db.Column(db.Integer, default=0)
     total_days = db.Column(db.Float, default=180.0)
-    present_fte = db.Column(db.Float, nullable=True)  # Stores exact value from CSV
+    present_fte = db.Column(db.Float, nullable=True)  # Direct value from CSV
 
     interventions = db.relationship(
         'Intervention', 
@@ -190,7 +190,7 @@ INDEX_HTML = """
             </div>
         </div>
 
-        <!-- Controls & CSV Import -->
+        <!-- Filters & Upload Form -->
         <div class="card shadow-sm mb-4">
             <div class="card-body">
                 <form method="GET" action="{{ url_for('index') }}" class="row g-3 align-items-end">
@@ -287,7 +287,6 @@ INDEX_HTML = """
                                 <td>{{ "%.1f"|format(s.absences) }}</td>
                                 <td>{{ s.tardies }}</td>
                                 
-                                <!-- Present FTE % direct from database -->
                                 <td class="fw-semibold">
                                     {% if s.present_fte is not none %}
                                         {{ "%.1f"|format(s.present_fte * 100) }}%
@@ -296,7 +295,6 @@ INDEX_HTML = """
                                     {% endif %}
                                 </td>
 
-                                <!-- Status Badge direct evaluation of present_fte -->
                                 <td>
                                     {% if s.present_fte is not none and s.present_fte <= 0.90 %}
                                         <span class="badge-chronic">Chronic</span>
@@ -315,7 +313,6 @@ INDEX_HTML = """
                 </div>
             </div>
 
-            <!-- Pagination -->
             {% if total_pages > 1 %}
             <div class="card-footer bg-white d-flex justify-content-between align-items-center">
                 <span class="small text-muted">Showing {{ display_count }} of {{ total_students }} records</span>
@@ -374,7 +371,6 @@ def index():
 
     query = StudentRecord.query
 
-    # Apply Role & School Filters
     if user.role != 'Admin':
         if user.school_id:
             query = query.filter_by(school_id=user.school_id)
@@ -391,7 +387,6 @@ def index():
             (StudentRecord.student_id.ilike(f"%{search_query}%"))
         )
 
-    # DIRECT COLUMN FILTER: Filtering based strictly on stored present_fte <= 0.90
     if selected_filter == 'chronic':
         query = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 0.90)
     elif selected_filter == 'most-absences':
@@ -399,12 +394,10 @@ def index():
     elif selected_filter == 'least-absences':
         query = query.order_by(StudentRecord.absences.asc())
 
-    # KPI Statistics
     total_students = query.count()
     at_risk_count = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 0.90).count()
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
 
-    # Pagination
     per_page = 25
     total_pages = math.ceil(total_students / per_page) if total_students > 0 else 1
     students = query.offset((page - 1) * per_page).limit(per_page).all()
@@ -473,12 +466,10 @@ def upload_csv():
         except ValueError:
             tardies = 0
 
-        # Parse Present_FTE column strictly from CSV
         raw_fte = str(row.get('Present_FTE') or row.get('present_fte') or '').replace('%', '').strip()
         if raw_fte:
             try:
                 val = float(raw_fte)
-                # Normalizes percentages (e.g., handles 85 as 0.85; keeps 0.85 as 0.85)
                 present_fte = val / 100.0 if val > 1.0 else val
             except ValueError:
                 present_fte = None
@@ -506,23 +497,25 @@ def upload_csv():
 # App Initialization & Default Seed Data
 # ------------------------------------------------------------------------------
 def init_db():
-    with app.app_context():
-        db.create_all()
-        if not School.query.first():
-            s1 = School(name="Lincoln High School")
-            s2 = School(name="Washington Middle School")
-            db.session.add_all([s1, s2])
-            db.session.commit()
+    db.create_all()
+    if not School.query.first():
+        s1 = School(name="Lincoln High School")
+        s2 = School(name="Washington Middle School")
+        db.session.add_all([s1, s2])
+        db.session.commit()
 
-            admin = User(username="admin", role="Admin")
-            admin.set_password("admin123")
-            
-            user = User(username="staff", role="User", school_id=s1.id)
-            user.set_password("staff123")
+        admin = User(username="admin", role="Admin")
+        admin.set_password("admin123")
+        
+        user = User(username="staff", role="User", school_id=s1.id)
+        user.set_password("staff123")
 
-            db.session.add_all([admin, user])
-            db.session.commit()
+        db.session.add_all([admin, user])
+        db.session.commit()
+
+# INITIALIZATION HOOK FOR PRODUCTION WSGI (Gunicorn / Docker)
+with app.app_context():
+    init_db()
 
 if __name__ == '__main__':
-    init_db()
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host='0.0.0.0', port=8080)
