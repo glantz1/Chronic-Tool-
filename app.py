@@ -66,6 +66,7 @@ class Intervention(db.Model):
     __tablename__ = 'intervention'
     id = db.Column(db.Integer, primary_key=True)
     student_record_id = db.Column(db.Integer, db.ForeignKey('student_record.id'), nullable=False)
+    action_type = db.Column(db.String(100), nullable=False, default='General Support')
     notes = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
