@@ -621,6 +621,34 @@ def log_intervention(student_id):
         flash("Student record not found.", "error")
         return redirect(url_for('index'))
 
+    if user.role != 'Admin' and student.school_id != user.school_id:
+        flash("Permission denied. You cannot modify records for this school.", "error")
+        return redirect(url_for('index'))
+
+    # Retrieve both action_type and notes from the submitted form
+    action_type = request.form.get('action_type', '').strip()
+    notes = request.form.get('notes', '').strip()
+
+    # Provide a default value if action_type was omitted in the form
+    if not action_type:
+        action_type = "General Support"
+
+    if not notes:
+        flash("Intervention notes cannot be empty.", "error")
+        return redirect(url_for('index'))
+
+    # Create the intervention with action_type included
+    intervention = Intervention(
+        student_record_id=student.id,
+        action_type=action_type,
+        notes=notes
+    )
+    db.session.add(intervention)
+    db.session.commit()
+
+    flash(f"Intervention logged successfully for {student.name}.", "success")
+    return redirect(url_for('index'))
+
     # Permission check: Non-admins can only log interventions for their school's students
     if user.role != 'Admin' and student.school_id != user.school_id:
         flash("Permission denied. You cannot modify records for this school.", "error")
