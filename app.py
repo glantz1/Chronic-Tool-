@@ -615,58 +615,61 @@ def index():
 @app.route('/log_intervention/<int:student_id>', methods=['POST'])
 @login_required
 def log_intervention(student_id):
-    user = db.session.get(User, session['user_id'])
+    # Support both form data and JSON requests
+    data = request.get_json(silent=True) or request.form
+
+    user_id = session.get('user_id')
+    user = db.session.get(User, user_id)
     student = db.session.get(StudentRecord, student_id)
 
     if not student:
+        if request.is_json:
+            return jsonify({'error': 'Student record not found.'}), 444
         flash("Student record not found.", "error")
         return redirect(url_for('index'))
 
-    if user.role != 'Admin' and student.school_id != user.school_id:
-        flash("Permission denied. You cannot modify records for this school.", "error")
+    if user.role != 'admin' and user.role != 'Admin' and student.school_id != user.school_id:
+        if request.is_json:
+            return jsonify({'error': 'Permission denied.'}), 403
+        flash("Permission denied.", "error")
         return redirect(url_for('index'))
 
-    # Retrieve both action_type and notes from the submitted form
-    action_type = request.form.get('action_type', '').strip()
-    notes = request.form.get('notes', '').strip()
-
-    # Provide a default value if action_type was omitted in the form
-    if not action_type:
-        action_type = "General Support"
+    # Retrieve parameters
+    action_type = data.get('action_type') or data.get('type') or 'General Support'
+    notes = (data.get('notes') or '').strip()
 
     if not notes:
+        if request.is_json:
+            return jsonify({'error': 'Intervention notes cannot be empty.'}), 400
         flash("Intervention notes cannot be empty.", "error")
         return redirect(url_for('index'))
 
-    # Create the intervention with action_type included
+    # Determine logged_by string/username depending on model column type
+    logged_by_value = getattr(user, 'username', None) or getattr(user, 'email', None) or str(user_id)
+
+    # Create intervention with logged_by / logged_by_id set
     intervention = Intervention(
         student_record_id=student.id,
         action_type=action_type,
-        notes=notes
+        notes=notes,
+        logged_by=logged_by_value  # <--- FIX: Ensure logged_by is never null
     )
+
+    # If your model uses user_id / logged_by_user_id FK instead:
+    if hasattr(Intervention, 'logged_by_user_id'):
+        intervention.logged_by_user_id = user_id
+    elif hasattr(Intervention, 'user_id'):
+        intervention.user_id = user_id
+
     db.session.add(intervention)
     db.session.commit()
 
-    flash(f"Intervention logged successfully for {student.name}.", "success")
-    return redirect(url_for('index'))
-
-    # Permission check: Non-admins can only log interventions for their school's students
-    if user.role != 'Admin' and student.school_id != user.school_id:
-        flash("Permission denied. You cannot modify records for this school.", "error")
-        return redirect(url_for('index'))
-
-    notes = request.form.get('notes', '').strip()
-    if not notes:
-        flash("Intervention notes cannot be empty.", "error")
-        return redirect(url_for('index'))
-
-    intervention = Intervention(student_record_id=student.id, notes=notes)
-    db.session.add(intervention)
-    db.session.commit()
+    if request.is_json:
+        return jsonify({'message': f'Intervention logged for {student.name}.', 'id': intervention.id}), 200
 
     flash(f"Intervention logged successfully for {student.name}.", "success")
     return redirect(url_for('index'))
-
+    
 @app.route('/add_school', methods=['POST'])
 @admin_required
 def add_school():
