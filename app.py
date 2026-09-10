@@ -583,7 +583,7 @@ def index():
         query = query.order_by(StudentRecord.present_fte.asc())
 
     # Pagination calculations
-    per_page = 25
+    per_page = 100
     total_students = query.count()
     at_risk_count = query.filter(StudentRecord.present_fte <= 90.0).count() if selected_filter != 'chronic' else total_students
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
