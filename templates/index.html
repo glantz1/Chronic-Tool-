@@ -1,168 +1,320 @@
-<select id="sortSelect" onchange="loadDashboard()" class="border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white">
-    <option value="absences_desc">Most Absences First</option>
-    <option value="absences_asc">Least Absences First</option>
-    <option value="fte_desc">Highest Present FTE% First</option>
-    <option value="fte_asc">Lowest Present FTE% First</option>
-    <option value="unexcused_desc">Most Unexcused Absences</option>
-    <option value="rate_asc">Lowest Attendance Rate</option>
-    <option value="name_asc">Name (A-Z)</option>
-</select>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance & Intervention Dashboard</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen font-sans">
 
-    <div id="uploadModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center hidden z-50">
-        <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-xl border">
-            <h3 class="text-lg font-bold text-slate-800 mb-1">Upload Student CSV</h3>
-            <p id="uploadSchoolLabel" class="text-sm text-indigo-600 font-medium mb-4"></p>
+    <!-- TOP NAVIGATION BAR -->
+    <header class="bg-indigo-900 text-white shadow-md">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <i class="fa-solid fa-graduation-cap text-2xl text-indigo-300"></i>
+                <h1 class="text-xl font-bold tracking-wide">Attendance Tracker</h1>
+            </div>
             
-            <form onsubmit="handleUpload(event)" class="space-y-4">
-                <input type="hidden" id="uploadSchoolId">
+            <div id="userInfo" class="hidden flex items-center space-x-4 text-sm">
+                <span class="text-indigo-200"><i class="fa-solid fa-user mr-1.5"></i><span id="userEmail"></span></span>
+                <button onclick="logout()" class="bg-indigo-800 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg border border-indigo-700 transition">
+                    <i class="fa-solid fa-right-from-bracket mr-1"></i> Logout
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTAINER -->
+    <main class="max-w-7xl mx-auto px-4 py-6">
+
+        <!-- LOGIN VIEW -->
+        <div id="loginView" class="max-w-md mx-auto my-12 bg-white p-8 rounded-xl shadow-md border border-slate-200 hidden">
+            <h2 class="text-2xl font-bold text-center text-slate-800 mb-6">Account Login</h2>
+            <div id="loginError" class="hidden mb-4 p-3 bg-red-100 text-red-700 text-sm rounded-lg border border-red-200"></div>
+            
+            <form onsubmit="handleLogin(event)" class="space-y-4">
                 <div>
-                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Select CSV File</label>
-                    <input type="file" id="csvFile" accept=".csv" required class="w-full text-sm border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Email</label>
+                    <input type="email" id="loginEmail" required class="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
-                <div id="uploadError" class="text-red-600 text-sm hidden"></div>
-                <div class="flex justify-end space-x-2 pt-2">
-                    <button type="button" onclick="toggleModal('uploadModal')" class="px-4 py-2 border rounded-lg text-slate-600 text-sm font-medium">Cancel</button>
-                    <button type="submit" id="uploadSubmitBtn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">Upload & Import</button>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Password</label>
+                    <input type="password" id="loginPassword" required class="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg transition">
+                    Sign In
+                </button>
+            </form>
+        </div>
+
+        <!-- DASHBOARD VIEW -->
+        <div id="dashboardView" class="space-y-6 hidden">
+            
+            <!-- CONTROLS & ACTIONS BAR -->
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center space-x-3">
+                    <label class="text-xs font-bold text-slate-500 uppercase">School:</label>
+                    <select id="schoolSelect" onchange="loadDashboard()" class="p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-medium">
+                    </select>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <button id="addSchoolBtn" onclick="toggleModal('schoolModal')" class="hidden bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-3 py-2 rounded-lg border border-slate-300 transition">
+                        <i class="fa-solid fa-plus mr-1"></i> Add School
+                    </button>
+                    <button id="manageUsersBtn" onclick="openUsersModal()" class="hidden bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-3 py-2 rounded-lg border border-slate-300 transition">
+                        <i class="fa-solid fa-users mr-1"></i> Manage Users
+                    </button>
+                    <button onclick="openUploadModal()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-sm font-medium px-3 py-2 rounded-lg border border-indigo-200 transition">
+                        <i class="fa-solid fa-file-upload mr-1"></i> Upload CSV
+                    </button>
+                    <button onclick="exportInterventions()" class="bg-emerald-60 hover:bg-emerald-100 text-emerald-700 text-sm font-medium px-3 py-2 rounded-lg border border-emerald-200 transition">
+                        <i class="fa-solid fa-file-export mr-1"></i> Export Data
+                    </button>
+                </div>
+            </div>
+
+            <!-- METRIC CARDS -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Enrolled</p>
+                        <p id="statTotal" class="text-3xl font-extrabold text-slate-800 mt-1">0</p>
+                    </div>
+                    <div class="p-3 bg-indigo-50 text-indigo-600 rounded-xl"><i class="fa-solid fa-users text-2xl"></i></div>
+                </div>
+
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Chronically Absent</p>
+                        <p id="statChronic" class="text-3xl font-extrabold text-red-600 mt-1">0</p>
+                    </div>
+                    <div class="p-3 bg-red-50 text-red-600 rounded-xl"><i class="fa-solid fa-user-xmark text-2xl"></i></div>
+                </div>
+
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Chronic Rate</p>
+                        <p id="statRate" class="text-3xl font-extrabold text-amber-600 mt-1">0%</p>
+                    </div>
+                    <div class="p-3 bg-amber-50 text-amber-600 rounded-xl"><i class="fa-solid fa-chart-pie text-2xl"></i></div>
+                </div>
+            </div>
+
+            <!-- FILTERS AND TABLE CONTAINER -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-4 border-b border-slate-200 flex flex-wrap gap-3 items-center justify-between bg-slate-50">
+                    <div class="flex flex-wrap gap-2 items-center flex-1 min-w-[280px]">
+                        <input type="text" id="searchInput" placeholder="Search by name or ID..." onkeyup="loadDashboard()" class="p-2 text-sm border border-slate-300 rounded-lg w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <select id="gradeFilter" onchange="loadDashboard()" class="p-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="">All Grades</option>
+                        </select>
+                        <select id="sortSelect" onchange="loadDashboard()" class="p-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="name">Sort by Name</option>
+                            <option value="absences">Sort by Absences (High-Low)</option>
+                            <option value="rate">Sort by Attendance Rate</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <input type="checkbox" id="chronicOnly" onchange="loadDashboard()" class="h-4 w-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+                        <label for="chronicOnly" class="text-sm font-medium text-slate-700">Chronically Absent Only</label>
+                    </div>
+                </div>
+
+                <!-- TABLE -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm text-slate-600">
+                        <thead class="bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase">
+                            <tr>
+                                <th class="p-3.5">Student ID</th>
+                                <th class="p-3.5">Name</th>
+                                <th class="p-3.5">Grade</th>
+                                <th class="p-3.5 text-center">Days Absent</th>
+                                <th class="p-3.5 text-center">Unexcused</th>
+                                <th class="p-3.5 text-center">Attendance %</th>
+                                <th class="p-3.5 text-center">Status</th>
+                                <th class="p-3.5 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="studentTableBody" class="divide-y divide-slate-200">
+                            <!-- Rows populated via Javascript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- MODALS -->
+
+    <!-- ADD SCHOOL MODAL -->
+    <div id="schoolModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-lg font-bold text-slate-800">Add New School</h3>
+                <button onclick="toggleModal('schoolModal')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <form onsubmit="handleAddSchool(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">School Name</label>
+                    <input type="text" id="newSchoolName" required class="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="toggleModal('schoolModal')" class="px-4 py-2 border rounded-lg text-slate-600 hover:bg-slate-50 text-sm">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">Save School</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Modal: Manage & Add Users -->
-    <div id="usersModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center hidden z-50">
-        <div class="bg-white rounded-xl p-6 w-full max-w-2xl shadow-xl border max-h-[90vh] flex flex-col">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-bold text-slate-800">User Management</h3>
-                <button onclick="toggleModal('usersModal')" class="text-slate-400 hover:text-slate-600">
-                    <i class="fa-solid fa-xmark text-xl"></i>
-                </button>
+    <!-- INTERVENTION MODAL -->
+    <div id="interventionModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-start border-b pb-3">
+                <div>
+                    <h3 id="interStudentName" class="text-lg font-bold text-slate-800">Student Name</h3>
+                    <p id="interStudentMeta" class="text-xs text-slate-500 font-medium mt-0.5">ID Meta info</p>
+                </div>
+                <button onclick="toggleModal('interventionModal')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
 
-            <!-- Add User Form -->
-            <form onsubmit="handleAddUser(event)" class="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-6 space-y-3">
-                <h4 class="text-sm font-semibold text-slate-700">Add New User</h4>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <input type="email" id="newUserEmail" placeholder="User Email" required class="px-3 py-1.5 border rounded-lg text-sm">
-                    <input type="password" id="newUserPassword" placeholder="Password" required class="px-3 py-1.5 border rounded-lg text-sm">
-                    <select id="newUserRole" class="px-3 py-1.5 border rounded-lg text-sm bg-white">
-                        <option value="staff">Staff / Counselor</option>
-                        <option value="admin">Admin</option>
-                    </select>
-                    <select id="newUserSchool" class="px-3 py-1.5 border rounded-lg text-sm bg-white">
-                        <option value="">No School Assigned (Admin Only)</option>
-                    </select>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- FORM -->
+                <form onsubmit="handleSaveIntervention(event)" class="space-y-3">
+                    <input type="hidden" id="interStudentDbId">
+                    <div id="interError" class="hidden p-2 text-xs bg-red-100 text-red-700 rounded border border-red-200"></div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Date</label>
+                        <input type="date" id="interDate" required class="w-full p-2 border text-sm border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Action / Intervention Type</label>
+                        <select id="interType" class="w-full p-2 border text-sm border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="Phone Call Home">Phone Call Home</option>
+                            <option value="Parent Conference">Parent Conference</option>
+                            <option value="Counselor Check-in">Counselor Check-in</option>
+                            <option value="Attendance Letter Sent">Attendance Letter Sent</option>
+                            <option value="Home Visit">Home Visit</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Notes</label>
+                        <textarea id="interNotes" rows="3" class="w-full p-2 border text-sm border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Details about this interaction..."></textarea>
+                    </div>
+                    <button type="submit" class="w-full bg-indigo-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-indigo-700 transition">Log Action</button>
+                </form>
+
+                <!-- HISTORY TIMELINE -->
+                <div class="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-col">
+                    <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Past History</h4>
+                    <div id="interventionHistoryList" class="space-y-3 overflow-y-auto max-h-[250px] pr-1">
+                        <!-- Items dynamically rendered -->
+                    </div>
                 </div>
-                <div id="addUserError" class="text-red-600 text-xs hidden"></div>
-                <div class="flex justify-end">
-                    <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-1.5 rounded-lg font-medium transition">
-                        Create User
-                    </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- UPLOAD CSV MODAL -->
+    <div id="uploadModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-lg font-bold text-slate-800">Upload Attendance Data</h3>
+                <button onclick="toggleModal('uploadModal')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <p id="uploadSchoolLabel" class="text-xs font-semibold text-indigo-600 bg-indigo-50 p-2 rounded border border-indigo-100"></p>
+            <div id="uploadError" class="hidden p-2 text-xs bg-red-100 text-red-700 rounded border border-red-200"></div>
+
+            <form onsubmit="handleUpload(event)" class="space-y-4">
+                <input type="hidden" id="uploadSchoolId">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Select CSV File</label>
+                    <input type="file" id="csvFile" accept=".csv" required class="w-full p-1.5 border border-slate-300 rounded-lg text-sm">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="toggleModal('uploadModal')" class="px-4 py-2 border rounded-lg text-slate-600 hover:bg-slate-50 text-sm">Cancel</button>
+                    <button id="uploadSubmitBtn" type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">Upload & Import</button>
                 </div>
             </form>
+        </div>
+    </div>
 
-            <!-- Existing Users Table (Server-rendered with Jinja) -->
-            <div class="overflow-y-auto flex-grow">
-                <h4 class="text-sm font-semibold text-slate-700 mb-2">Existing System Users</h4>
+    <!-- USER MANAGEMENT MODAL -->
+    <div id="usersModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-lg font-bold text-slate-800">User Management</h3>
+                <button onclick="toggleModal('usersModal')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <!-- ADD USER FORM -->
+            <form onsubmit="handleAddUser(event)" class="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
+                <h4 class="text-xs font-bold text-slate-600 uppercase">Create New User Account</h4>
+                <div id="addUserError" class="hidden p-2 text-xs bg-red-100 text-red-700 rounded border border-red-200"></div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <input type="email" id="newUserEmail" placeholder="Email Address" required class="w-full p-2 text-sm border rounded-lg">
+                    </div>
+                    <div>
+                        <input type="password" id="newUserPassword" placeholder="Password" required class="w-full p-2 text-sm border rounded-lg">
+                    </div>
+                    <div>
+                        <select id="newUserRole" class="w-full p-2 text-sm border rounded-lg">
+                            <option value="user">User (School Staff)</option>
+                            <option value="admin">Administrator</option>
+                        </select>
+                    </div>
+                    <div>
+                        <select id="newUserSchool" class="w-full p-2 text-sm border rounded-lg">
+                            <option value="">No School Assigned (Admin Only)</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-indigo-700">Add User Account</button>
+            </form>
+
+            <!-- EXISTING USERS LIST -->
+            <div class="border rounded-lg overflow-hidden">
                 <table class="w-full text-left text-xs">
-                    <thead class="bg-slate-100 text-slate-600 font-semibold uppercase">
+                    <thead class="bg-slate-100 font-bold text-slate-500 border-b">
                         <tr>
                             <th class="p-2">ID</th>
-                            <th class="p-2">Username</th>
+                            <th class="p-2">Email</th>
                             <th class="p-2">Role</th>
                             <th class="p-2">School ID</th>
                             <th class="p-2 text-right">Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="userListTable" class="divide-y divide-slate-200">
-                        {% for user in users %}
-                        <tr class="hover:bg-slate-50">
-                            <td class="p-2 font-medium text-slate-800">{{ user.id }}</td>
-                            <td class="p-2 text-slate-800">{{ user.username }}</td>
-                            <td class="p-2 capitalize text-slate-600">{{ user.role }}</td>
-                            <td class="p-2 text-slate-600">{{ user.school_id if user.school_id else 'N/A' }}</td>
-                            <td class="p-2 text-right">
-                                {% if user.id != session.get('user_id') %}
-                                <form action="{{ url_for('delete_user', user_id=user.id) }}" 
-                                      method="POST" 
-                                      style="display:inline;"
-                                      onsubmit="return confirm('Are you sure you want to delete user {{ user.username }}?');">
-                                    <button type="submit" class="text-red-600 hover:text-red-800 font-medium">Delete</button>
-                                </form>
-                                {% else %}
-                                <span class="text-slate-400 font-medium">Current User</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
+                    <tbody id="userListTable" class="divide-y divide-slate-100">
+                        <!-- Populated dynamic or via server template -->
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
 
-    <!-- Modal: Interventions & Actions -->
-    <div id="interventionModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center hidden z-50">
-        <div class="bg-white rounded-xl p-6 w-full max-w-2xl shadow-xl border max-h-[90vh] flex flex-col">
-            <div class="flex justify-between items-start mb-4 border-b pb-3">
-                <div>
-                    <h3 id="interStudentName" class="text-xl font-bold text-slate-800"></h3>
-                    <p id="interStudentMeta" class="text-xs text-slate-500 font-medium mt-0.5"></p>
-                </div>
-                <button onclick="toggleModal('interventionModal')" class="text-slate-400 hover:text-slate-600">
-                    <i class="fa-solid fa-xmark text-xl"></i>
-                </button>
-            </div>
-
-            <!-- Log Intervention Form -->
-            <form onsubmit="handleSaveIntervention(event)" class="bg-indigo-50/50 p-4 rounded-lg border border-indigo-100 mb-6 space-y-3">
-                <h4 class="text-sm font-semibold text-indigo-900 flex items-center">
-                    <i class="fa-solid fa-pen-to-square mr-1.5"></i> Log New Intervention Action
-                </h4>
-                <input type="hidden" id="interStudentDbId">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 mb-1">Date</label>
-                        <input type="date" id="interDate" required class="w-full px-3 py-1.5 border rounded-lg text-sm bg-white">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 mb-1">Action / Strategy Type</label>
-                        <select id="interType" name="action_type" required class="w-full px-3 py-1.5 border rounded-lg text-sm bg-white">
-                            <option value="Parent Phone Call">Parent Phone Call</option>
-                            <option value="Student Conference">Student Conference</option>
-                            <option value="Parent Meeting / Conference">Parent Meeting / Conference</option>
-                            <option value="Attendance Contract Signed">Attendance Contract Signed</option>
-                            <option value="Home Visit">Home Visit</option>
-                            <option value="Counseling Referral">Counseling Referral</option>
-                            <option value="Official Warning Letter Sent">Official Warning Letter Sent</option>
-                            <option value="Truancy Diversion Referral">Truancy Diversion Referral</option>
-                        </select>
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-slate-600 mb-1">Details & Meeting Notes</label>
-                    <textarea id="interNotes" rows="2" placeholder="Record discussion outcomes or next steps..." class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" required></textarea>
-                </div>
-                <div id="interError" class="text-red-600 text-xs hidden"></div>
-                <div class="flex justify-end">
-                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded-lg font-medium transition flex items-center">
-                        <i class="fa-solid fa-floppy-disk mr-1.5"></i> Save Action Log
-                    </button>
-                </div>
-            </form>
-
-            <!-- Intervention History -->
-            <div class="overflow-y-auto flex-grow">
-                <h4 class="text-sm font-semibold text-slate-700 mb-3">Logged Intervention History</h4>
-                <div id="interventionHistoryList" class="space-y-3">
-                    <!-- Dynamic timeline entries -->
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Complete JavaScript Logic -->
+    <!-- JAVASCRIPT LOGIC -->
     <script>
         let currentUser = null;
+
+        // Helper to prevent XSS injection via dynamic innerHTML
+        function escapeHTML(str) {
+            if (!str && str !== 0) return '';
+            return String(str).replace(/[&<>"']/g, match => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[match]));
+        }
 
         function toggleModal(id) {
             const el = document.getElementById(id);
@@ -242,7 +394,7 @@
                 const select = document.getElementById('schoolSelect');
                 select.innerHTML = '';
                 (data.schools || []).forEach(s => {
-                    select.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+                    select.innerHTML += `<option value="${escapeHTML(s.id)}">${escapeHTML(s.name)}</option>`;
                 });
                 if (data.schools && data.schools.length > 0) {
                     loadDashboard();
@@ -293,7 +445,7 @@
                 gradeSelect.innerHTML = '<option value="">All Grades</option>';
                 (data.available_grades || []).forEach(g => {
                     const selected = g === currentGradeSelection ? 'selected' : '';
-                    gradeSelect.innerHTML += `<option value="${g}" ${selected}>Grade ${g}</option>`;
+                    gradeSelect.innerHTML += `<option value="${escapeHTML(g)}" ${selected}>Grade ${escapeHTML(g)}</option>`;
                 });
 
                 const tbody = document.getElementById('studentTableBody');
@@ -304,17 +456,16 @@
                         ? `<span class="bg-red-100 text-red-700 text-xs px-2.5 py-1 rounded-full font-semibold">Chronic</span>`
                         : `<span class="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-semibold">On Track</span>`;
 
-                    // Render dynamic counter badge bubble based on count
                     const interCount = s.interventions_count || 0;
                     const interventionBadge = interCount > 0
-                        ? `<button class="relative inline-flex items-center gap-x-1.5 rounded-lg bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition shadow-sm">
+                        ? `<button onclick="event.stopPropagation(); openInterventionModal(${JSON.stringify(s).replace(/"/g, '&quot;')})" class="relative inline-flex items-center gap-x-1.5 rounded-lg bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition shadow-sm">
                              <i class="fa-solid fa-clipboard-list"></i>
                              <span>Interventions</span>
                              <span class="inline-flex items-center justify-center rounded-full bg-indigo-600 px-2 py-0.5 text-xs font-bold text-white shadow-sm ml-1">
                                ${interCount}
                              </span>
                            </button>`
-                        : `<button class="inline-flex items-center gap-x-1.5 rounded-lg bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500 border border-slate-200 hover:bg-slate-100 transition">
+                        : `<button onclick="event.stopPropagation(); openInterventionModal(${JSON.stringify(s).replace(/"/g, '&quot;')})" class="inline-flex items-center gap-x-1.5 rounded-lg bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500 border border-slate-200 hover:bg-slate-100 transition">
                              <i class="fa-solid fa-plus text-slate-400"></i>
                              <span>Log Action</span>
                            </button>`;
@@ -324,9 +475,9 @@
                     row.onclick = () => openInterventionModal(s);
                     
                     row.innerHTML = `
-                        <td class="p-3.5 font-medium text-slate-700">${s.student_id}</td>
-                        <td class="p-3.5 font-bold text-slate-800">${s.student_name}</td>
-                        <td class="p-3.5">${s.grade || '-'}</td>
+                        <td class="p-3.5 font-medium text-slate-700">${escapeHTML(s.student_id)}</td>
+                        <td class="p-3.5 font-bold text-slate-800">${escapeHTML(s.student_name)}</td>
+                        <td class="p-3.5">${escapeHTML(s.grade) || '-'}</td>
                         <td class="p-3.5 text-center font-semibold text-slate-800">${s.days_absent}</td>
                         <td class="p-3.5 text-center text-amber-600 font-semibold">${s.unexcused_absences}</td>
                         <td class="p-3.5 text-center font-bold text-slate-800">${s.attendance_rate_pct}%</td>
@@ -371,15 +522,17 @@
                 }
 
                 data.interventions.forEach(item => {
-                    const typeLabel = item.type || item.action_type || 'General Support';
+                    const typeLabel = escapeHTML(item.type || item.action_type || 'General Support');
+                    const notes = item.notes ? escapeHTML(item.notes) : '<span class="italic text-slate-400">No additional notes provided.</span>';
+                    
                     listDiv.innerHTML += `
                         <div class="bg-slate-50 border border-slate-200 p-3 rounded-lg text-xs space-y-1">
                             <div class="flex justify-between items-center">
                                 <span class="font-bold text-slate-800">${typeLabel}</span>
-                                <span class="text-slate-400 font-medium">${item.date || item.created_at || ''}</span>
+                                <span class="text-slate-400 font-medium">${escapeHTML(item.date || item.created_at || '')}</span>
                             </div>
-                            <p class="text-slate-600">${item.notes || '<span class="italic text-slate-400">No additional notes provided.</span>'}</p>
-                            <div class="text-[10px] text-indigo-600 font-medium text-right pt-1">Logged by: ${item.logged_by || 'Staff'}</div>
+                            <p class="text-slate-600">${notes}</p>
+                            <div class="text-[10px] text-indigo-600 font-medium text-right pt-1">Logged by: ${escapeHTML(item.logged_by || 'Staff')}</div>
                         </div>
                     `;
                 });
@@ -482,7 +635,7 @@
             } catch (err) {
                 errorDiv.textContent = "An unexpected error occurred during upload.";
                 errorDiv.classList.remove('hidden');
-            } finally {
+            } font-medium {
                 submitBtn.disabled = false;
                 submitBtn.textContent = "Upload & Import";
             }
@@ -500,7 +653,7 @@
                 const select = document.getElementById('newUserSchool');
                 select.innerHTML = '<option value="">No School Assigned (Admin Only)</option>';
                 (data.schools || []).forEach(s => {
-                    select.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+                    select.innerHTML += `<option value="${escapeHTML(s.id)}">${escapeHTML(s.name)}</option>`;
                 });
             } catch (e) {
                 console.error("Could not populate user school options:", e);
@@ -517,19 +670,41 @@
 
             errDiv.classList.add('hidden');
 
-            const res = await fetch('/admin/users', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password, role, school_id })
-            });
+            try {
+                const res = await fetch('/admin/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password, role, school_id })
+                });
 
-            const data = await res.json();
-            if (res.ok) {
-                document.getElementById('newUserEmail').value = '';
-                document.getElementById('newUserPassword').value = '';
-                location.reload();
-            } else {
-                errDiv.textContent = data.error || "Failed to add user.";
+                const data = await res.json();
+                if (res.ok) {
+                    document.getElementById('newUserEmail').value = '';
+                    document.getElementById('newUserPassword').value = '';
+                    
+                    const tbody = document.getElementById('userListTable');
+                    if (tbody && data.user) {
+                        const tr = document.createElement('tr');
+                        tr.className = 'hover:bg-slate-50';
+                        tr.innerHTML = `
+                            <td class="p-2 font-medium text-slate-800">${escapeHTML(data.user.id)}</td>
+                            <td class="p-2 text-slate-800">${escapeHTML(data.user.username || email)}</td>
+                            <td class="p-2 capitalize text-slate-600">${escapeHTML(data.user.role || role)}</td>
+                            <td class="p-2 text-slate-600">${escapeHTML(data.user.school_id || 'N/A')}</td>
+                            <td class="p-2 text-right">
+                                <form action="/delete_user/${escapeHTML(data.user.id)}" method="POST" style="display:inline;" onsubmit="return confirm('Are you sure?');">
+                                    <button type="submit" class="text-red-600 hover:text-red-800 font-medium">Delete</button>
+                                </form>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    }
+                } else {
+                    errDiv.textContent = data.error || "Failed to add user.";
+                    errDiv.classList.remove('hidden');
+                }
+            } catch (err) {
+                errDiv.textContent = "Network error while creating user.";
                 errDiv.classList.remove('hidden');
             }
         }
@@ -543,7 +718,6 @@
             window.location.href = `/export/interventions?school_id=${schoolId}`;
         }
 
-        // Initialize application on startup
         document.addEventListener('DOMContentLoaded', checkAuth);
     </script>
 </body>
