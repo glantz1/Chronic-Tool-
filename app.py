@@ -614,8 +614,7 @@ def index():
         str=str
     )
 
-from flask import Flask, jsonify, request
-from models import db, Student, Intervention  # adjust to match your model names
+
 
 app = Flask(__name__)
 # ... database config & setup ...
