@@ -650,22 +650,52 @@ def upload_csv():
 
         count = 0
         for row in csv_reader:
-            s_id = row.get('student_id') or row.get('Student ID')
-            name = row.get('name') or row.get('Name')
+            # Flexible Student ID mapping
+            s_id = row.get('StudentNumber') or row.get('student_id') or row.get('Student ID')
+            
+            # Flexible Name mapping
+            name = row.get('studentName') or row.get('name') or row.get('Name')
+            
             if not s_id or not name:
                 continue
 
-            grade = row.get('grade', 'N/A')
-            absences = float(row.get('absences', 0.0))
-            unexcused = int(row.get('unexcused_absences', 0))
-            tardies = int(row.get('tardies', 0))
-            total_days = float(row.get('total_days', 180.0))
+            grade = str(row.get('grade', 'N/A')).strip()
 
-            present_fte = ((total_days - absences) / total_days) * 100.0 if total_days > 0 else 0.0
+            # Helper function to safely extract numeric values
+            def clean_float(val, default=0.0):
+                if not val:
+                    return default
+                try:
+                    return float(str(val).replace('%', '').strip())
+                except ValueError:
+                    return default
 
-            record = StudentRecord.query.filter_by(student_id=s_id, school_id=target_school_id).first()
+            def clean_int(val, default=0):
+                if not val:
+                    return default
+                try:
+                    return int(float(str(val).replace('%', '').strip()))
+                except ValueError:
+                    return default
+
+            # Flexible column mappings for attendance stats
+            absences = clean_float(row.get('CurrentSchoolAbsences7') or row.get('absences'))
+            unexcused = clean_int(row.get('UnexcusedAbsences') or row.get('unexcused_absences'))
+            tardies = clean_int(row.get('tardies'))
+            total_days = clean_float(row.get('CurrentSchoolMembershipDays11') or row.get('total_days'), default=180.0)
+
+            # Calculate FTE percentage
+            if row.get('PresentFTE3'):
+                present_fte = clean_float(row.get('PresentFTE3'))
+            elif total_days > 0:
+                present_fte = ((total_days - absences) / total_days) * 100.0
+            else:
+                present_fte = 0.0
+
+            # Upsert into database
+            record = StudentRecord.query.filter_by(student_id=str(s_id), school_id=target_school_id).first()
             if not record:
-                record = StudentRecord(student_id=s_id, school_id=target_school_id)
+                record = StudentRecord(student_id=str(s_id), school_id=target_school_id)
                 db.session.add(record)
 
             record.name = name
@@ -684,7 +714,6 @@ def upload_csv():
         flash(f"Error parsing CSV file: {str(e)}", "error")
 
     return redirect(url_for('index'))
-
 
 @app.route('/log_intervention/<int:student_id>', methods=['POST'])
 @login_required
