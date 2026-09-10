@@ -3,19 +3,11 @@ import io
 import csv
 import math
 from functools import wraps
-from flask import (
-    Flask, render_template_string, request, redirect, 
-    url_for, session, flash
-)
+from flask import Flask, session, flash, redirect, url_for, render_template_string
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-db = SQLAlchemy(app)
+db = SQLAlchemy()
 
 # ------------------------------------------------------------------------------
 # Models
@@ -26,6 +18,7 @@ class School(db.Model):
     name = db.Column(db.String(100), nullable=False, unique=True)
     users = db.relationship('User', backref='school', lazy=True)
     records = db.relationship('StudentRecord', backref='school', lazy=True)
+
 
 class User(db.Model):
     __tablename__ = 'user'
@@ -40,6 +33,7 @@ class User(db.Model):
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
 
 class StudentRecord(db.Model):
     __tablename__ = 'student_record'
@@ -62,15 +56,17 @@ class StudentRecord(db.Model):
         foreign_keys='Intervention.student_record_id'
     )
 
+
 class Intervention(db.Model):
     __tablename__ = 'intervention'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     student_record_id = db.Column(db.Integer, db.ForeignKey('student_record.id'), nullable=False)
     action_type = db.Column(db.String(100), nullable=False, default='General Support')
     notes = db.Column(db.Text, nullable=False)
     logged_by = db.Column(db.String(150), nullable=False, default='System')
-    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp)
+
 
 # ------------------------------------------------------------------------------
 # Helpers & Auth Decorators
@@ -84,6 +80,7 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -96,6 +93,7 @@ def admin_required(f):
             return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated_function
+
 
 # ------------------------------------------------------------------------------
 # HTML Templates
@@ -321,7 +319,7 @@ INDEX_HTML = """
                         <select name="school_id" class="form-select" onchange="this.form.submit()">
                             <option value="all" {% if selected_school_id == 'all' %}selected{% endif %}>All Schools</option>
                             {% for sch in schools %}
-                            <option value="{{ sch.id }}" {% if selected_school_id == str(sch.id) %}selected{% endif %}>{{ sch.name }}</option>
+                            <option value="{{ sch.id }}" {% if selected_school_id|string == sch.id|string %}selected{% endif %}>{{ sch.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -456,7 +454,7 @@ INDEX_HTML = """
                                                         <ul class="list-group list-group-flush small" style="max-height: 150px; overflow-y: auto;">
                                                             {% for log in s.interventions %}
                                                             <li class="list-group-item px-0 py-1">
-                                                                <span class="text-muted" style="font-size:0.8em;">{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</span>: {{ log.notes }}
+                                                                <span class="text-muted" style="font-size:0.8em;">{{ log.created_at.strftime('%Y-%m-%d %H:%M') if log.created_at else '' }}</span>: {{ log.notes }}
                                                             </li>
                                                             {% endfor %}
                                                         </ul>
