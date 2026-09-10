@@ -614,6 +614,123 @@ def index():
         str=str
     )
 
+from flask import Flask, jsonify, request
+from models import db, Student, Intervention  # adjust to match your model names
+
+app = Flask(__name__)
+# ... database config & setup ...
+
+
+# ==========================================
+# 1. YOUR NEW ROUTE: Fetch Students & Counts
+# ==========================================
+@app.route('/students', methods=['GET'])
+def get_students():
+    school_id = request.args.get('school_id')
+    search = request.args.get('search', '')
+    grade = request.args.get('grade', '')
+    sort_by = request.args.get('sort', 'name')
+    chronic_only = request.args.get('chronic', 'false').lower() == 'true'
+
+    query = Student.query.filter_by(school_id=school_id)
+
+    if search:
+        query = query.filter(
+            (Student.student_name.ilike(f'%{search}%')) | 
+            (Student.student_id.ilike(f'%{search}%'))
+        )
+    if grade:
+        query = query.filter_by(grade=grade)
+    if chronic_only:
+        query = query.filter_by(is_chronic=True)
+
+    students = query.all()
+
+    student_list = []
+    for s in students:
+        # Count interventions for each student
+        count = Intervention.query.filter_by(student_db_id=s.id).count()
+
+        student_list.append({
+            'db_id': s.id,
+            'student_id': s.student_id,
+            'student_name': s.student_name,
+            'grade': s.grade,
+            'days_absent': s.days_absent,
+            'unexcused_absences': s.unexcused_absences,
+            'attendance_rate_pct': s.attendance_rate_pct,
+            'is_chronic': s.is_chronic,
+            'interventions_count': count  # Pass count to JavaScript
+        })
+
+    total_students = len(students)
+    chronic_count = sum(1 for s in students if s.is_chronic)
+    chronic_rate = round((chronic_count / total_students * 100), 1) if total_students > 0 else 0
+
+    return jsonify({
+        'students': student_list,
+        'total_students': total_students,
+        'chronic_count': chronic_count,
+        'chronic_rate_pct': chronic_rate,
+        'available_grades': sorted(list(set(s.grade for s in students if s.grade)))
+    })
+
+
+# ==========================================
+# 2. YOUR NEW ROUTE: Save Interventions
+# ==========================================
+@app.route('/interventions', methods=['POST'])
+def create_intervention():
+    data = request.get_json()
+    
+    student_db_id = data.get('student_db_id')
+    date = data.get('date')
+    action_type = data.get('action_type') or data.get('type')
+    notes = data.get('notes')
+
+    if not student_db_id or not action_type:
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    new_intervention = Intervention(
+        student_db_id=student_db_id,
+        date=date,
+        type=action_type,
+        notes=notes
+    )
+
+    db.session.add(new_intervention)
+    db.session.commit()
+
+    return jsonify({'message': 'Intervention logged successfully'}), 201
+
+
+# ==========================================
+# 3. YOUR NEW ROUTE: Fetch History
+# ==========================================
+@app.route('/interventions', methods=['GET'])
+def get_interventions():
+    student_db_id = request.args.get('student_db_id')
+    if not student_db_id:
+        return jsonify({'error': 'student_db_id required'}), 400
+
+    interventions = Intervention.query.filter_by(student_db_id=student_db_id).order_by(Intervention.date.desc()).all()
+    
+    return jsonify({
+        'interventions': [{
+            'id': i.id,
+            'type': i.type,
+            'date': str(i.date),
+            'notes': i.notes,
+            'logged_by': getattr(i, 'logged_by', 'Staff')
+        } for i in interventions]
+    })
+
+
+# ... other existing routes like /login, /logout, /upload ...
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
 @app.route('/log_intervention/<int:student_id>', methods=['POST'])
 @login_required
 def log_intervention(student_id):
