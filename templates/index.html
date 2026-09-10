@@ -304,6 +304,21 @@
                         ? `<span class="bg-red-100 text-red-700 text-xs px-2.5 py-1 rounded-full font-semibold">Chronic</span>`
                         : `<span class="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-semibold">On Track</span>`;
 
+                    // Render dynamic counter badge bubble based on count
+                    const interCount = s.interventions_count || 0;
+                    const interventionBadge = interCount > 0
+                        ? `<button class="relative inline-flex items-center gap-x-1.5 rounded-lg bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition shadow-sm">
+                             <i class="fa-solid fa-clipboard-list"></i>
+                             <span>Interventions</span>
+                             <span class="inline-flex items-center justify-center rounded-full bg-indigo-600 px-2 py-0.5 text-xs font-bold text-white shadow-sm ml-1">
+                               ${interCount}
+                             </span>
+                           </button>`
+                        : `<button class="inline-flex items-center gap-x-1.5 rounded-lg bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500 border border-slate-200 hover:bg-slate-100 transition">
+                             <i class="fa-solid fa-plus text-slate-400"></i>
+                             <span>Log Action</span>
+                           </button>`;
+
                     const row = document.createElement('tr');
                     row.className = "hover:bg-indigo-50/50 cursor-pointer transition";
                     row.onclick = () => openInterventionModal(s);
@@ -316,10 +331,8 @@
                         <td class="p-3.5 text-center text-amber-600 font-semibold">${s.unexcused_absences}</td>
                         <td class="p-3.5 text-center font-bold text-slate-800">${s.attendance_rate_pct}%</td>
                         <td class="p-3.5 text-center">${statusBadge}</td>
-                        <td class="p-3.5 text-right font-medium text-indigo-600">
-                            <span class="bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg text-xs font-semibold">
-                                <i class="fa-solid fa-clipboard-list mr-1"></i> ${s.interventions_count} logged
-                            </span>
+                        <td class="p-3.5 text-right font-medium">
+                            ${interventionBadge}
                         </td>
                     `;
                     tbody.appendChild(row);
