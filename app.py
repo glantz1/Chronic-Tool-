@@ -1,7 +1,6 @@
 import csv
 import io
 import math
-import os
 from functools import wraps
 from flask import (
     Flask,
@@ -15,62 +14,18 @@ from flask import (
 )
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.middleware.proxy_fix import ProxyFix
 
 # ----------------------------------------------------------------------
 # Application Setup & Configurations
 # ----------------------------------------------------------------------
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "super-secret-key-change-in-production")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///attendance_tracker.db")
-# Fix potential Postgres URI formatting issue on Railway (postgres:// -> postgresql://)
-if app.config["SQLALCHEMY_DATABASE_URI"].startswith("postgres://"):
-    app.config["SQLALCHEMY_DATABASE_URI"] = app.config["SQLALCHEMY_DATABASE_URI"].replace("postgres://", "postgresql://", 1)
-
+app.config["SECRET_KEY"] = "super-secret-key-change-in-production"
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///attendance_tracker.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
-# Enable ProxyFix to correctly read Railway's SSL/HTTPS headers (prevents SSL redirect loops)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 db = SQLAlchemy(app)
 
-# Placeholders for HTML Templates
-INDEX_HTML = """
-<!DOCTYPE html>
-<html>
-<head><title>Dashboard</title></head>
-<body>
-    <h1>Student Attendance Dashboard</h1>
-    <p>Welcome, {{ current_user.username }} ({{ current_user.role }}) | <a href="{{ url_for('logout') }}">Logout</a></p>
-    <hr>
-    <p>Total Students: {{ total_students }} | At-Risk: {{ at_risk_count }} | Chronic Rate: {{ "%.1f"|format(chronic_rate) }}%</p>
-</body>
-</html>
-"""
-
-LOGIN_HTML = """
-<!DOCTYPE html>
-<html>
-<head><title>Login</title></head>
-<body>
-    <h2>Login to Attendance System</h2>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <p style="color: red;">{{ message }}</p>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-    <form method="POST" action="{{ url_for('login') }}">
-        <label>Username:</label><br>
-        <input type="text" name="username" required><br><br>
-        <label>Password:</label><br>
-        <input type="password" name="password" required><br><br>
-        <button type="submit">Log In</button>
-    </form>
-</body>
-</html>
-"""
+INDEX_HTML = "<h1>Student Attendance System</h1>"  # Replace with actual HTML template
 
 
 # ----------------------------------------------------------------------
@@ -138,7 +93,7 @@ def login_required(f):
     def decorated_function(*args, **kwargs):
         if "user_id" not in session:
             flash("Please log in to access this page.", "error")
-            return redirect(url_for("login"))  # Fixes redirect loop
+            return redirect(url_for("index"))
         return f(*args, **kwargs)
 
     return decorated_function
@@ -150,7 +105,7 @@ def admin_required(f):
         user_id = session.get("user_id")
         if not user_id:
             flash("Please log in first.", "error")
-            return redirect(url_for("login"))
+            return redirect(url_for("index"))
         user = db.session.get(User, user_id)
         if not user or user.role.lower() != "admin":
             flash("Administrator rights required.", "error")
@@ -161,34 +116,7 @@ def admin_required(f):
 
 
 # ----------------------------------------------------------------------
-# Authentication Routes
-# ----------------------------------------------------------------------
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "").strip()
-
-        user = User.query.filter_by(username=username).first()
-        if user and user.check_password(password):
-            session["user_id"] = user.id
-            flash("Logged in successfully.", "success")
-            return redirect(url_for("index"))
-
-        flash("Invalid username or password.", "error")
-
-    return render_template_string(LOGIN_HTML)
-
-
-@app.route("/logout")
-def logout():
-    session.clear()
-    flash("You have been logged out.", "success")
-    return redirect(url_for("login"))
-
-
-# ----------------------------------------------------------------------
-# Core Application Routes
+# Core Routes
 # ----------------------------------------------------------------------
 @app.route("/")
 @login_required
@@ -217,7 +145,7 @@ def index():
     if search_query:
         query = query.filter(StudentRecord.name.ilike(f"%{search_query}%"))
 
-    # Calculate Metrics on Filtered Query safely
+    # 5. Calculate Metrics on Filtered Query safely
     total_students = query.count()
     at_risk_count = query.filter(
         StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0
@@ -267,6 +195,7 @@ def index():
 @app.route("/log_intervention/<int:student_id>", methods=["POST"])
 @login_required
 def log_intervention(student_id):
+    # Support both form data and JSON requests
     data = request.get_json(silent=True) or request.form
 
     user_id = session.get("user_id")
@@ -288,6 +217,7 @@ def log_intervention(student_id):
         flash("Permission denied.", "error")
         return redirect(url_for("index"))
 
+    # Retrieve parameters
     action_type = (
         data.get("action_type") or data.get("type") or "General Support"
     )
@@ -299,12 +229,14 @@ def log_intervention(student_id):
         flash("Intervention notes cannot be empty.", "error")
         return redirect(url_for("index"))
 
+    # Determine logged_by string/username depending on model column type
     logged_by_value = (
         getattr(user, "username", None)
         or getattr(user, "email", None)
         or str(user_id)
     )
 
+    # Create intervention with logged_by / logged_by_id set
     intervention = Intervention(
         student_record_id=student.id,
         action_type=action_type,
@@ -312,6 +244,7 @@ def log_intervention(student_id):
         logged_by=logged_by_value,
     )
 
+    # Attach optional user relationships if present
     if hasattr(Intervention, "logged_by_user_id"):
         intervention.logged_by_user_id = user_id
     elif hasattr(Intervention, "user_id"):
@@ -435,6 +368,7 @@ def upload_csv():
         imported_count = 0
         skipped_count = 0
 
+        # Safe parsing helpers
         def safe_float(val, default=0.0):
             if val is None:
                 return default
@@ -591,5 +525,5 @@ if __name__ == "__main__":
             db.session.commit()
             print("Default admin created (Username: admin, Password: admin123)")
 
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(debug=True)
+    
