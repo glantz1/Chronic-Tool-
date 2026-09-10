@@ -768,6 +768,7 @@ def upload_csv():
 
         imported_count = 0
         skipped_count = 0
+        csv_student_ids = set()
 
         # Safe parsing helpers that handle None, empty strings, and '%'
         def safe_float(val, default=0.0):
@@ -826,6 +827,9 @@ def upload_csv():
                 skipped_count += 1
                 continue
 
+            student_id_str = str(student_id)
+            csv_student_ids.add(student_id_str)
+
             grade = clean_row.get('grade') or clean_row.get('grade_level') or 'N/A'
 
             # Parse numeric fields safely
@@ -842,9 +846,9 @@ def upload_csv():
                 present_fte = max(0.0, min(100.0, ((total_days - absences) / total_days) * 100)) if total_days > 0 else 0.0
 
             # Database Upsert
-            record = StudentRecord.query.filter_by(student_id=str(student_id), school_id=school_id).first()
+            record = StudentRecord.query.filter_by(student_id=student_id_str, school_id=school_id).first()
             if not record:
-                record = StudentRecord(student_id=str(student_id), school_id=school_id)
+                record = StudentRecord(student_id=student_id_str, school_id=school_id)
                 db.session.add(record)
 
             record.name = name
@@ -857,21 +861,32 @@ def upload_csv():
 
             imported_count += 1
 
-        db.session.commit()
-
         if imported_count == 0:
             flash("No valid records could be processed from the uploaded file.", "error")
-        else:
-            msg = f"Successfully processed {imported_count} student records."
-            if skipped_count > 0:
-                msg += f" ({skipped_count} skipped)"
-            flash(msg, "success")
+            return redirect(url_for('index'))
+
+        # DELETE ABSENT STUDENTS: Remove database records for this school that are missing from the uploaded file
+        deleted_count = db.session.query(StudentRecord).filter(
+            StudentRecord.school_id == school_id,
+            ~StudentRecord.student_id.in_(csv_student_ids)
+        ).delete(synchronize_session=False)
+
+        db.session.commit()
+
+        msg = f"Successfully updated {imported_count} student records."
+        if deleted_count > 0:
+            msg += f" Removed {deleted_count} student(s) no longer present in CSV."
+        if skipped_count > 0:
+            msg += f" ({skipped_count} row(s) skipped)"
+        
+        flash(msg, "success")
 
     except Exception as e:
         db.session.rollback()
         flash(f"Error parsing CSV file: {str(e)}", "error")
 
     return redirect(url_for('index'))
+
 
 if __name__ == '__main__':
     with app.app_context():
