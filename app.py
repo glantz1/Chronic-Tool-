@@ -3,11 +3,20 @@ import io
 import csv
 import math
 from functools import wraps
-from flask import Flask, session, flash, redirect, url_for, render_template_string
+from flask import Flask, request, session, flash, redirect, url_for, render_template_string
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# ------------------------------------------------------------------------------
+# App & Database Setup
+# ------------------------------------------------------------------------------
+app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'default-dev-key-change-in-production')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 db = SQLAlchemy()
+db.init_app(app)
 
 # ------------------------------------------------------------------------------
 # Models
@@ -510,16 +519,14 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
             session['user_id'] = user.id
             flash("Logged in successfully.", "success")
             return redirect(url_for('index'))
-        else:
-            flash("Invalid username or password.", "error")
-
+        flash("Invalid username or password.", "error")
     return render_template_string(LOGIN_HTML)
+
 
 @app.route('/logout')
 def logout():
@@ -527,66 +534,73 @@ def logout():
     flash("You have been logged out.", "success")
     return redirect(url_for('login'))
 
+
 @app.route('/')
 @login_required
 def index():
     user = db.session.get(User, session['user_id'])
-
+    
+    # Query parameters
     selected_school_id = request.args.get('school_id', 'all')
     selected_grade = request.args.get('grade', 'all')
     selected_filter = request.args.get('filter', 'all')
     search_query = request.args.get('q', '').strip()
     page = request.args.get('page', 1, type=int)
-    per_page = 100
+
+    # Restrict normal users to their assigned school
+    if user.role != 'Admin' and user.school_id:
+        selected_school_id = str(user.school_id)
 
     query = StudentRecord.query
 
-    # 1. Scope filter by User Role / School Selection
-    if user.role != 'Admin':
-        query = query.filter_by(school_id=user.school_id)
-    elif selected_school_id != 'all':
-        query = query.filter_by(school_id=selected_school_id)
+    # Apply school filter
+    if selected_school_id != 'all':
+        query = query.filter(StudentRecord.school_id == selected_school_id)
 
-    # 2. Grade Filter
+    # Apply grade filter
     if selected_grade != 'all':
-        query = query.filter_by(grade=selected_grade)
+        query = query.filter(StudentRecord.grade == selected_grade)
 
-    # 3. Search Query Filter
+    # Apply search filter
     if search_query:
         query = query.filter(
-            (StudentRecord.name.ilike(f"%{search_query}%")) | 
+            (StudentRecord.name.ilike(f"%{search_query}%")) |
             (StudentRecord.student_id.ilike(f"%{search_query}%"))
         )
 
-    # 4. Status / Attendance Filter
+    # Ordering & status filter
     if selected_filter == 'chronic':
-        query = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0)
+        query = query.filter(StudentRecord.present_fte <= 90.0)
     elif selected_filter == 'most-absences':
         query = query.order_by(StudentRecord.absences.desc())
+    elif selected_filter == 'most-unexcused':
+        query = query.order_by(StudentRecord.unexcused_absences.desc())
     elif selected_filter == 'least-absences':
         query = query.order_by(StudentRecord.absences.asc())
-    elif selected_filter == 'most-unexcused':
-        query = query.order_by(StudentRecord.unexcused_absences.desc())    
     elif selected_filter == 'highest-fte':
         query = query.order_by(StudentRecord.present_fte.desc())
     elif selected_filter == 'lowest-fte':
         query = query.order_by(StudentRecord.present_fte.asc())
 
-    # 5. Calculate Metrics on Filtered Query safely
+    # Pagination calculations
+    per_page = 25
     total_students = query.count()
-    at_risk_count = query.filter(StudentRecord.present_fte.isnot(None), StudentRecord.present_fte <= 90.0).count()
+    at_risk_count = query.filter(StudentRecord.present_fte <= 90.0).count() if selected_filter != 'chronic' else total_students
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
-    total_pages = math.ceil(total_students / per_page) if total_students > 0 else 1
+
+    total_pages = math.ceil(total_students / per_page)
     students = query.offset((page - 1) * per_page).limit(per_page).all()
 
+    # Auxiliary Data
     schools = School.query.all()
     all_users = User.query.all() if user.role == 'Admin' else []
-    available_grades = [g[0] for g in db.session.query(StudentRecord.grade).distinct().all() if g[0]]
+    
+    # Available grades for drop-down
+    available_grades_query = db.session.query(StudentRecord.grade).distinct().all()
+    available_grades = sorted([g[0] for g in available_grades_query if g[0]])
 
     active_school_name = "All Schools"
-    if user.role != 'Admin' and user.school:
-        active_school_name = user.school.name
-    elif selected_school_id != 'all':
+    if selected_school_id != 'all':
         sch = db.session.get(School, int(selected_school_id))
         if sch:
             active_school_name = sch.name
@@ -597,230 +611,74 @@ def index():
         students=students,
         schools=schools,
         all_users=all_users,
-        available_grades=sorted(available_grades),
-        total_students=total_students,
-        at_risk_count=at_risk_count,
-        chronic_rate=chronic_rate,
-        active_school_name=active_school_name,
+        available_grades=available_grades,
         selected_school_id=selected_school_id,
         selected_grade=selected_grade,
         selected_filter=selected_filter,
         search_query=search_query,
-        current_page=page,
-        total_pages=total_pages,
+        active_school_name=active_school_name,
+        total_students=total_students,
+        at_risk_count=at_risk_count,
+        chronic_rate=chronic_rate,
         display_count=len(students),
-        str=str
+        current_page=page,
+        total_pages=total_pages
     )
-    
-@app.route('/add_school', methods=['POST'])
-@admin_required
-def add_school():
-    school_name = request.form.get('school_name', '').strip()
-    if not school_name:
-        flash("School name is required.", "error")
-        return redirect(url_for('index'))
 
-    existing = School.query.filter_by(name=school_name).first()
-    if existing:
-        flash(f"School '{school_name}' already exists.", "error")
-        return redirect(url_for('index'))
-
-    school = School(name=school_name)
-    db.session.add(school)
-    db.session.commit()
-
-    flash(f"School '{school_name}' created successfully.", "success")
-    return redirect(url_for('index'))
-
-@app.route('/add_user', methods=['POST'])
-@admin_required
-def add_user():
-    username = request.form.get('username', '').strip()
-    password = request.form.get('password', '').strip()
-    role = request.form.get('role', 'User')
-    school_id = request.form.get('school_id')
-
-    if not username or not password:
-        flash("Username and password are required.", "error")
-        return redirect(url_for('index'))
-
-    if User.query.filter_by(username=username).first():
-        flash("Username already exists.", "error")
-        return redirect(url_for('index'))
-
-    user = User(
-        username=username,
-        role=role,
-        school_id=int(school_id) if school_id else None
-    )
-    user.set_password(password)
-
-    db.session.add(user)
-    db.session.commit()
-
-    flash(f"User '{username}' created successfully.", "success")
-    return redirect(url_for('index'))
-
-@app.route('/delete_user/<int:user_id>', methods=['POST'])
-@admin_required
-def delete_user(user_id):
-    if user_id == session.get('user_id'):
-        flash("You cannot delete your own active account.", "error")
-        return redirect(url_for('index'))
-
-    user = db.session.get(User, user_id)
-    if not user:
-        flash("User not found.", "error")
-        return redirect(url_for('index'))
-
-    db.session.delete(user)
-    db.session.commit()
-
-    flash(f"User '{user.username}' deleted.", "success")
-    return redirect(url_for('index'))
 
 @app.route('/upload_csv', methods=['POST'])
 @login_required
 def upload_csv():
     user = db.session.get(User, session['user_id'])
     
+    target_school_id = user.school_id
     if user.role == 'Admin':
-        school_id = request.form.get('school_id')
-        if not school_id:
-            flash("Please select a target school for the CSV upload.", "error")
-            return redirect(url_for('index'))
-        school_id = int(school_id)
-    else:
-        school_id = user.school_id
-        if not school_id:
-            flash("Your account is not associated with a school.", "error")
-            return redirect(url_for('index'))
+        target_school_id = request.form.get('school_id')
+
+    if not target_school_id:
+        flash("Please select a target school for the CSV import.", "error")
+        return redirect(url_for('index'))
 
     file = request.files.get('file')
-    if not file or not file.filename.lower().endswith('.csv'):
-        flash("Please upload a valid CSV file.", "error")
+    if not file or not file.filename.endswith('.csv'):
+        flash("Invalid file. Please upload a valid CSV file.", "error")
         return redirect(url_for('index'))
 
     try:
-        content = file.stream.read().decode("utf-8-sig")
-        stream = io.StringIO(content, newline=None)
-        reader = csv.DictReader(stream)
+        stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
+        csv_reader = csv.DictReader(stream)
 
-        imported_count = 0
-        skipped_count = 0
-        csv_student_ids = set()
-
-        # Safe parsing helpers that handle None, empty strings, and '%'
-        def safe_float(val, default=0.0):
-            if val is None:
-                return default
-            val_str = str(val).replace('%', '').strip()
-            if not val_str:
-                return default
-            try:
-                return float(val_str)
-            except ValueError:
-                return default
-
-        def safe_int(val, default=0):
-            if val is None:
-                return default
-            val_str = str(val).strip()
-            if not val_str:
-                return default
-            try:
-                return int(float(val_str))
-            except ValueError:
-                return default
-
-        for row in reader:
-            # Clean keys/values and protect against None keys/values
-            clean_row = {
-                (str(k).strip().lower() if k else ''): (str(v).strip() if v is not None else '') 
-                for k, v in row.items()
-            }
-            
-            # Map Student ID
-            student_id = (
-                clean_row.get('studentnumber') or 
-                clean_row.get('student_number') or 
-                clean_row.get('studentnumber1') or 
-                clean_row.get('student_id') or 
-                clean_row.get('id')
-            )
-
-            # Map Student Name
-            name = (
-                clean_row.get('studentname') or 
-                clean_row.get('student_name') or 
-                clean_row.get('name') or 
-                clean_row.get('full_name')
-            )
-
-            if not name:
-                first = clean_row.get('first_name') or clean_row.get('firstname') or ''
-                last = clean_row.get('last_name') or clean_row.get('lastname') or ''
-                if first or last:
-                    name = f"{first} {last}".strip()
-
-            if not student_id or not name:
-                skipped_count += 1
+        count = 0
+        for row in csv_reader:
+            s_id = row.get('student_id') or row.get('Student ID')
+            name = row.get('name') or row.get('Name')
+            if not s_id or not name:
                 continue
 
-            student_id_str = str(student_id)
-            csv_student_ids.add(student_id_str)
+            grade = row.get('grade', 'N/A')
+            absences = float(row.get('absences', 0.0))
+            unexcused = int(row.get('unexcused_absences', 0))
+            tardies = int(row.get('tardies', 0))
+            total_days = float(row.get('total_days', 180.0))
 
-            grade = clean_row.get('grade') or clean_row.get('grade_level') or 'N/A'
+            present_fte = ((total_days - absences) / total_days) * 100.0 if total_days > 0 else 0.0
 
-            # Parse numeric fields safely
-            absences = safe_float(clean_row.get('currentschoolabsences7') or clean_row.get('absences'))
-            unexcused = safe_int(clean_row.get('unexcusedabsences') or clean_row.get('unexcused_absences'))
-            tardies = safe_int(clean_row.get('tardies'))
-            total_days = safe_float(clean_row.get('currentschoolmembershipdays11') or clean_row.get('total_days'), 180.0)
-
-            # Present FTE %
-            present_fte_val = clean_row.get('presentfte3') or clean_row.get('present_fte') or clean_row.get('presentfte_dist3')
-            if present_fte_val:
-                present_fte = safe_float(present_fte_val)
-            else:
-                present_fte = max(0.0, min(100.0, ((total_days - absences) / total_days) * 100)) if total_days > 0 else 0.0
-
-            # Database Upsert
-            record = StudentRecord.query.filter_by(student_id=student_id_str, school_id=school_id).first()
+            record = StudentRecord.query.filter_by(student_id=s_id, school_id=target_school_id).first()
             if not record:
-                record = StudentRecord(student_id=student_id_str, school_id=school_id)
+                record = StudentRecord(student_id=s_id, school_id=target_school_id)
                 db.session.add(record)
 
             record.name = name
-            record.grade = str(grade)
+            record.grade = grade
             record.absences = absences
             record.unexcused_absences = unexcused
             record.tardies = tardies
             record.total_days = total_days
             record.present_fte = present_fte
-
-            imported_count += 1
-
-        if imported_count == 0:
-            flash("No valid records could be processed from the uploaded file.", "error")
-            return redirect(url_for('index'))
-
-        # DELETE ABSENT STUDENTS: Remove database records for this school that are missing from the uploaded file
-        deleted_count = db.session.query(StudentRecord).filter(
-            StudentRecord.school_id == school_id,
-            ~StudentRecord.student_id.in_(csv_student_ids)
-        ).delete(synchronize_session=False)
+            count += 1
 
         db.session.commit()
-
-        msg = f"Successfully updated {imported_count} student records."
-        if deleted_count > 0:
-            msg += f" Removed {deleted_count} student(s) no longer present in CSV."
-        if skipped_count > 0:
-            msg += f" ({skipped_count} row(s) skipped)"
-        
-        flash(msg, "success")
-
+        flash(f"Successfully processed {count} student records.", "success")
     except Exception as e:
         db.session.rollback()
         flash(f"Error parsing CSV file: {str(e)}", "error")
@@ -828,14 +686,84 @@ def upload_csv():
     return redirect(url_for('index'))
 
 
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        if not User.query.filter_by(username='admin').first():
-            default_admin = User(username='admin', role='Admin')
-            default_admin.set_password('admin123')
-            db.session.add(default_admin)
-            db.session.commit()
-            print("Default admin created (Username: admin, Password: admin123)")
+@app.route('/log_intervention/<int:student_id>', methods=['POST'])
+@login_required
+def log_intervention(student_id):
+    user = db.session.get(User, session['user_id'])
+    notes = request.form.get('notes')
+    
+    if notes:
+        intervention = Intervention(
+            student_record_id=student_id,
+            notes=notes,
+            logged_by=user.username
+        )
+        db.session.add(intervention)
+        db.session.commit()
+        flash("Intervention logged successfully.", "success")
+    else:
+        flash("Notes cannot be empty.", "error")
 
-    app.run(debug=True)
+    return redirect(url_for('index'))
+
+
+@app.route('/add_school', methods=['POST'])
+@admin_required
+def add_school():
+    name = request.form.get('school_name', '').strip()
+    if name:
+        if School.query.filter_by(name=name).first():
+            flash("School name already exists.", "error")
+        else:
+            school = School(name=name)
+            db.session.add(school)
+            db.session.commit()
+            flash(f"School '{name}' created successfully.", "success")
+    return redirect(url_for('index'))
+
+
+@app.route('/add_user', methods=['POST'])
+@admin_required
+def add_user():
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '').strip()
+    role = request.form.get('role', 'User')
+    school_id = request.form.get('school_id') or None
+
+    if username and password:
+        if User.query.filter_by(username=username).first():
+            flash("Username already exists.", "error")
+        else:
+            new_user = User(username=username, role=role, school_id=school_id)
+            new_user.set_password(password)
+            db.session.add(new_user)
+            db.session.commit()
+            flash(f"User '{username}' created successfully.", "success")
+    return redirect(url_for('index'))
+
+
+@app.route('/delete_user/<int:user_id>', methods=['POST'])
+@admin_required
+def delete_user(user_id):
+    user = db.session.get(User, user_id)
+    if user:
+        db.session.delete(user)
+        db.session.commit()
+        flash("User deleted successfully.", "success")
+    return redirect(url_for('index'))
+
+
+# ------------------------------------------------------------------------------
+# Database Initialization & Setup
+# ------------------------------------------------------------------------------
+with app.app_context():
+    db.create_all()
+    # Seed initial Admin user if table is empty
+    if not User.query.filter_by(username='admin').first():
+        admin = User(username='admin', role='Admin')
+        admin.set_password('admin123')
+        db.session.add(admin)
+        db.session.commit()
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080, debug=True)
