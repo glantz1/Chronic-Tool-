@@ -554,11 +554,14 @@ def index():
     if user.role != 'Admin' and user.school_id:
         selected_school_id = str(user.school_id)
 
-    query = StudentRecord.query
+    # --------------------------------------------------------------------------
+    # Base Query: Filter ONLY for currently active students in the building
+    # --------------------------------------------------------------------------
+    query = StudentRecord.query.filter(StudentRecord.is_active == True)
 
     # Apply school filter
     if selected_school_id != 'all':
-        query = query.filter(StudentRecord.school_id == selected_school_id)
+        query = query.filter(StudentRecord.school_id == int(selected_school_id))
 
     # Apply grade filter
     if selected_grade != 'all':
@@ -571,7 +574,16 @@ def index():
             (StudentRecord.student_id.ilike(f"%{search_query}%"))
         )
 
-    # Ordering & status filter
+    # --------------------------------------------------------------------------
+    # KPI Calculations (Base active building query before sorting/filters)
+    # --------------------------------------------------------------------------
+    total_students = query.count()
+    at_risk_count = query.filter(StudentRecord.present_fte <= 90.0).count()
+    chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
+
+    # --------------------------------------------------------------------------
+    # Sort & Display Filters
+    # --------------------------------------------------------------------------
     if selected_filter == 'chronic':
         query = query.filter(StudentRecord.present_fte <= 90.0)
     elif selected_filter == 'most-absences':
@@ -585,22 +597,28 @@ def index():
     elif selected_filter == 'lowest-fte':
         query = query.order_by(StudentRecord.present_fte.asc())
 
-    # Pagination calculations
-    per_page = 100
-    total_students = query.count()
-    at_risk_count = query.filter(StudentRecord.present_fte <= 90.0).count() if selected_filter != 'chronic' else total_students
-    chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
-
-    total_pages = math.ceil(total_students / per_page)
+    # --------------------------------------------------------------------------
+    # Pagination Setup
+    # --------------------------------------------------------------------------
+    per_page = 25
+    filtered_total = query.count()
+    total_pages = math.ceil(filtered_total / per_page)
     students = query.offset((page - 1) * per_page).limit(per_page).all()
 
-    # Auxiliary Data
+    # --------------------------------------------------------------------------
+    # Auxiliary UI Data
+    # --------------------------------------------------------------------------
     schools = School.query.all()
     all_users = User.query.all() if user.role == 'Admin' else []
     
-    # Available grades for drop-down
-    available_grades_query = db.session.query(StudentRecord.grade).distinct().all()
-    available_grades = sorted([g[0] for g in available_grades_query if g[0]])
+    # Populate grade filter dynamically from active students only
+    grade_query = db.session.query(StudentRecord.grade)\
+        .filter(StudentRecord.is_active == True)
+    if selected_school_id != 'all':
+        grade_query = grade_query.filter(StudentRecord.school_id == int(selected_school_id))
+    
+    available_grades_tuples = grade_query.distinct().all()
+    available_grades = sorted([g[0] for g in available_grades_tuples if g[0]])
 
     active_school_name = "All Schools"
     if selected_school_id != 'all':
@@ -627,7 +645,6 @@ def index():
         current_page=page,
         total_pages=total_pages
     )
-
 
 @app.route('/upload_csv', methods=['POST'])
 @login_required
