@@ -56,6 +56,9 @@ class StudentRecord(db.Model):
     tardies = db.Column(db.Integer, default=0)
     total_days = db.Column(db.Float, default=180.0)
     present_fte = db.Column(db.Float, nullable=True)
+    
+    # NEW: Flag to track if the student is currently enrolled in the building
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
 
     interventions = db.relationship(
         'Intervention', 
@@ -648,20 +651,19 @@ def upload_csv():
         stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
         csv_reader = csv.DictReader(stream)
 
+        uploaded_student_ids = set()
         count = 0
+
         for row in csv_reader:
-            # Flexible Student ID mapping
-            s_id = row.get('StudentNumber') or row.get('student_id') or row.get('Student ID')
-            
-            # Flexible Name mapping
-            name = row.get('studentName') or row.get('name') or row.get('Name')
-            
+            s_id = str(row.get('StudentNumber') or row.get('student_id') or row.get('Student ID') or '').strip()
+            name = str(row.get('studentName') or row.get('name') or row.get('Name') or '').strip()
+
             if not s_id or not name:
                 continue
 
+            uploaded_student_ids.add(s_id)
             grade = str(row.get('grade', 'N/A')).strip()
 
-            # Helper function to safely extract numeric values
             def clean_float(val, default=0.0):
                 if not val:
                     return default
@@ -678,13 +680,11 @@ def upload_csv():
                 except ValueError:
                     return default
 
-            # Flexible column mappings for attendance stats
             absences = clean_float(row.get('CurrentSchoolAbsences7') or row.get('absences'))
             unexcused = clean_int(row.get('UnexcusedAbsences') or row.get('unexcused_absences'))
             tardies = clean_int(row.get('tardies'))
             total_days = clean_float(row.get('CurrentSchoolMembershipDays11') or row.get('total_days'), default=180.0)
 
-            # Calculate FTE percentage
             if row.get('PresentFTE3'):
                 present_fte = clean_float(row.get('PresentFTE3'))
             elif total_days > 0:
@@ -692,10 +692,10 @@ def upload_csv():
             else:
                 present_fte = 0.0
 
-            # Upsert into database
-            record = StudentRecord.query.filter_by(student_id=str(s_id), school_id=target_school_id).first()
+            # Upsert student record
+            record = StudentRecord.query.filter_by(student_id=s_id, school_id=target_school_id).first()
             if not record:
-                record = StudentRecord(student_id=str(s_id), school_id=target_school_id)
+                record = StudentRecord(student_id=s_id, school_id=target_school_id)
                 db.session.add(record)
 
             record.name = name
@@ -705,10 +705,24 @@ def upload_csv():
             record.tardies = tardies
             record.total_days = total_days
             record.present_fte = present_fte
+            record.is_active = True  # Explicitly mark as currently active in building
             count += 1
 
+        # ----------------------------------------------------------------------
+        # ROSTER SYNC: Handle students who were withdrawn / NOT in this CSV
+        # ----------------------------------------------------------------------
+        existing_students = StudentRecord.query.filter_by(school_id=target_school_id).all()
+        for student in existing_students:
+            if student.student_id not in uploaded_student_ids:
+                # If student has no interventions logged, remove them cleanly
+                if not student.interventions:
+                    db.session.delete(student)
+                else:
+                    # Keep record and interventions, but mark inactive
+                    student.is_active = False
+
         db.session.commit()
-        flash(f"Successfully processed {count} student records.", "success")
+        flash(f"Roster synced successfully! Currently active students: {count}", "success")
     except Exception as e:
         db.session.rollback()
         flash(f"Error parsing CSV file: {str(e)}", "error")
