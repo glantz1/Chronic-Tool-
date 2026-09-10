@@ -539,7 +539,7 @@ def index():
     selected_filter = request.args.get('filter', 'all')
     search_query = request.args.get('q', '').strip()
     page = request.args.get('page', 1, type=int)
-    per_page = 25
+    per_page = 100
 
     query = StudentRecord.query
 
