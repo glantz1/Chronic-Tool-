@@ -827,3 +827,25 @@ with app.app_context():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=True)
+
+from sqlalchemy import text
+
+# ------------------------------------------------------------------------------
+# Database Initialization & Schema Auto-Migration
+# ------------------------------------------------------------------------------
+with app.app_context():
+    db.create_all()
+
+    # Safely add 'is_active' column to PostgreSQL/SQLite if missing
+    try:
+        db.session.execute(text("ALTER TABLE student_record ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    # Seed initial Admin user if table is empty
+    if not User.query.filter_by(username='admin').first():
+        admin = User(username='admin', role='Admin')
+        admin.set_password('admin123')
+        db.session.add(admin)
+        db.session.commit()
