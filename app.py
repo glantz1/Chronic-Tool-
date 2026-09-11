@@ -69,6 +69,8 @@ class StudentRecord(db.Model):
     )
 
 
+from datetime import datetime  # Make sure datetime is imported at the top
+
 class Intervention(db.Model):
     __tablename__ = 'intervention'
 
@@ -77,8 +79,9 @@ class Intervention(db.Model):
     action_type = db.Column(db.String(100), nullable=False, default='General Support')
     notes = db.Column(db.Text, nullable=False)
     logged_by = db.Column(db.String(150), nullable=False, default='System')
-    created_at = db.Column(db.DateTime, default=db.func.current_timestamp)
-
+    
+    # FIX: Use datetime.now for Python-level default timestamping
+    created_at = db.Column(db.DateTime, default=datetime.now)
 
 # ------------------------------------------------------------------------------
 # Helpers & Auth Decorators
