@@ -753,19 +753,32 @@ def upload_csv():
 @login_required
 def log_intervention(student_id):
     user = db.session.get(User, session['user_id'])
-    notes = request.form.get('notes')
-    
-    if notes:
+    notes = request.form.get('notes', '').strip()
+    action_type = request.form.get('action_type', 'General Support').strip()
+
+    if not notes:
+        flash("Notes cannot be empty.", "error")
+        return redirect(url_for('index'))
+
+    student = db.session.get(StudentRecord, student_id)
+    if not student:
+        flash("Student record not found.", "error")
+        return redirect(url_for('index'))
+
+    try:
         intervention = Intervention(
             student_record_id=student_id,
             notes=notes,
-            logged_by=user.username
+            action_type=action_type if action_type else 'General Support',
+            logged_by=user.username,
+            created_at=datetime.now()  # Explicit timestamp ensures no adapter error
         )
         db.session.add(intervention)
         db.session.commit()
         flash("Intervention logged successfully.", "success")
-    else:
-        flash("Notes cannot be empty.", "error")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error saving intervention: {str(e)}", "error")
 
     return redirect(url_for('index'))
 
