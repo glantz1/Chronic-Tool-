@@ -62,13 +62,16 @@
                     </select>
                 </div>
 
-                <div class="flex flex-wrap items-center gap-2">
+               <div class="flex flex-wrap items-center gap-2">
                     <button id="addSchoolBtn" onclick="toggleModal('schoolModal')" class="hidden bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-3 py-2 rounded-lg border border-slate-300 transition">
                         <i class="fa-solid fa-plus mr-1"></i> Add School
                     </button>
                     <button id="manageUsersBtn" onclick="openUsersModal()" class="hidden bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-3 py-2 rounded-lg border border-slate-300 transition">
                         <i class="fa-solid fa-users mr-1"></i> Manage Users
                     </button>
+                    <a id="backupBtn" href="/admin/backup" class="hidden bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition">
+                        <i class="fa-solid fa-download mr-1"></i> Backup Data (.JSON)
+                    </a>
                     <button onclick="openUploadModal()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-sm font-medium px-3 py-2 rounded-lg border border-indigo-200 transition">
                         <i class="fa-solid fa-file-upload mr-1"></i> Upload CSV
                     </button>
@@ -402,6 +405,7 @@
                     if (currentUser.role === 'admin') {
                         document.getElementById('addSchoolBtn').classList.remove('hidden');
                         document.getElementById('manageUsersBtn').classList.remove('hidden');
+                        document.getElementById('backupBtn').classList.remove('hidden');
                     }
 
                     await loadSchools();
