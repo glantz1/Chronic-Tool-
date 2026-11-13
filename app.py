@@ -1,107 +1,40 @@
 import csv
 import io
-from flask import Response, request, session
-from sqlalchemy import asc, desc
+import math
+import os
+from datetime import datetime
+from functools import wraps
 
-@app.route('/export/students')
-def export_students():
-    # Ensure user is logged in
-    if 'user_id' not in session:
-        return "Unauthorized", 401
-
-    school_id = request.args.get('school_id')
-    if not school_id:
-        return "School ID is required", 400
-
-    search = request.args.get('search', '').strip()
-    grade = request.args.get('grade', '').strip()
-    sort = request.args.get('sort', 'absences_desc')
-    chronic_only = request.args.get('chronic', 'false').lower() == 'true'
-
-    # Base query filtered by school
-    query = StudentRecord.query.filter_by(school_id=school_id)
-
-    # Apply search filter (matches name or student ID)
-    if search:
-        query = query.filter(
-            (StudentRecord.student_name.ilike(f'%{search}%')) |
-            (StudentRecord.student_id.ilike(f'%{search}%'))
-        )
-
-    # Apply grade filter
-    if grade:
-        query = query.filter(StudentRecord.grade == grade)
-
-    # Apply chronic-only filter (adjust if your model uses a column vs. calculated property)
-    if chronic_only:
-        query = query.filter(StudentRecord.is_chronic == True)
-
-    # Apply sorting
-    sort_mapping = {
-        'name': asc(StudentRecord.student_name),
-        'name_asc': asc(StudentRecord.student_name),
-        'absences': desc(StudentRecord.days_absent),
-        'absences_desc': desc(StudentRecord.days_absent),
-        'absences_asc': asc(StudentRecord.days_absent),
-        'unexcused_desc': desc(StudentRecord.unexcused_absences),
-        'rate': asc(StudentRecord.attendance_rate_pct),
-        'rate_asc': asc(StudentRecord.attendance_rate_pct),
-    }
-    if sort in sort_mapping:
-        query = query.order_by(sort_mapping[sort])
-
-    students = query.all()
-
-    # Build CSV in memory
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    # Header row
-    writer.writerow([
-        'Student ID',
-        'Student Name',
-        'Grade',
-        'Days Absent',
-        'Unexcused Absences',
-        'Attendance Rate (%)',
-        'Status',
-        'Interventions Logged'
-    ])
-
-    # Data rows
-    for s in students:
-        status = 'Chronic' if s.is_chronic else 'On Track'
-        interventions_count = len(s.interventions) if hasattr(s, 'interventions') else 0
-        writer.writerow([
-            s.student_id,
-            s.student_name,
-            s.grade or '',
-            s.days_absent,
-            s.unexcused_absences,
-            s.attendance_rate_pct,
-            status,
-            interventions_count
-        ])
-
-    output.seek(0)
-    return Response(
-        output.getvalue(),
-        mimetype='text/csv',
-        headers={
-            'Content-Disposition': f'attachment; filename=filtered_students_school_{school_id}.csv'
-        }
-    )
+from flask import (
+    Flask,
+    Response,
+    flash,
+    redirect,
+    render_template_string,
+    request,
+    session,
+    url_for,
+)
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import asc, desc, text
+from werkzeug.security import check_password_hash, generate_password_hash
 
 # ------------------------------------------------------------------------------
 # App & Database Setup
 # ------------------------------------------------------------------------------
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'default-dev-key-change-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
+
+database_url = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy()
 db.init_app(app)
+
 
 # ------------------------------------------------------------------------------
 # Models
@@ -141,32 +74,26 @@ class StudentRecord(db.Model):
     tardies = db.Column(db.Integer, default=0)
     total_days = db.Column(db.Float, default=180.0)
     present_fte = db.Column(db.Float, nullable=True)
-    
-    # NEW: Flag to track if the student is currently enrolled in the building
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
     interventions = db.relationship(
-        'Intervention', 
-        backref='student', 
-        lazy=True, 
-        cascade="all, delete-orphan", 
+        'Intervention',
+        backref='student',
+        lazy=True,
+        cascade="all, delete-orphan",
         foreign_keys='Intervention.student_record_id'
     )
 
 
-from datetime import datetime  # Make sure datetime is imported at the top
-
 class Intervention(db.Model):
     __tablename__ = 'intervention'
-
     id = db.Column(db.Integer, primary_key=True)
     student_record_id = db.Column(db.Integer, db.ForeignKey('student_record.id'), nullable=False)
     action_type = db.Column(db.String(100), nullable=False, default='General Support')
     notes = db.Column(db.Text, nullable=False)
     logged_by = db.Column(db.String(150), nullable=False, default='System')
-    
-    # FIX: Use datetime.now for Python-level default timestamping
     created_at = db.Column(db.DateTime, default=datetime.now)
+
 
 # ------------------------------------------------------------------------------
 # Helpers & Auth Decorators
@@ -193,6 +120,98 @@ def admin_required(f):
             return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated_function
+
+
+def build_filtered_student_query(user, args):
+    """Shared filter & sort builder used by both the dashboard and CSV export."""
+    selected_school_id = args.get('school_id', 'all')
+    selected_grade = args.get('grade', 'all')
+    selected_filter = args.get('filter', 'all')
+    search_query = args.get('q', '').strip()
+
+    # Column-level filters
+    col_id = args.get('col_id', '').strip()
+    col_name = args.get('col_name', '').strip()
+    col_grade = args.get('col_grade', '').strip()
+    min_absences = args.get('min_absences', '').strip()
+    min_unexcused = args.get('min_unexcused', '').strip()
+    max_fte = args.get('max_fte', '').strip()
+    col_status = args.get('col_status', '').strip()
+
+    # Restrict normal users to their assigned school
+    if user.role != 'Admin' and user.school_id:
+        selected_school_id = str(user.school_id)
+
+    base_query = StudentRecord.query.filter(StudentRecord.is_active == True)
+
+    if selected_school_id != 'all' and selected_school_id.isdigit():
+        base_query = base_query.filter(StudentRecord.school_id == int(selected_school_id))
+
+    if selected_grade != 'all' and selected_grade:
+        base_query = base_query.filter(StudentRecord.grade == selected_grade)
+
+    if search_query:
+        base_query = base_query.filter(
+            (StudentRecord.name.ilike(f"%{search_query}%")) |
+            (StudentRecord.student_id.ilike(f"%{search_query}%"))
+        )
+
+    # Apply column-specific filters
+    if col_id:
+        base_query = base_query.filter(StudentRecord.student_id.ilike(f"%{col_id}%"))
+    if col_name:
+        base_query = base_query.filter(StudentRecord.name.ilike(f"%{col_name}%"))
+    if col_grade:
+        base_query = base_query.filter(StudentRecord.grade.ilike(f"%{col_grade}%"))
+    if min_absences:
+        try:
+            base_query = base_query.filter(StudentRecord.absences >= float(min_absences))
+        except ValueError:
+            pass
+    if min_unexcused.isdigit():
+        base_query = base_query.filter(StudentRecord.unexcused_absences >= int(min_unexcused))
+    if max_fte:
+        try:
+            base_query = base_query.filter(StudentRecord.present_fte <= float(max_fte))
+        except ValueError:
+            pass
+    if col_status == 'chronic':
+        base_query = base_query.filter(StudentRecord.present_fte <= 90.0)
+    elif col_status == 'ontrack':
+        base_query = base_query.filter((StudentRecord.present_fte > 90.0) | (StudentRecord.present_fte == None))
+
+    # Apply display filter / sorting
+    display_query = base_query
+    if selected_filter == 'chronic':
+        display_query = display_query.filter(StudentRecord.present_fte <= 90.0)
+    elif selected_filter == 'most-absences':
+        display_query = display_query.order_by(StudentRecord.absences.desc())
+    elif selected_filter == 'most-unexcused':
+        display_query = display_query.order_by(StudentRecord.unexcused_absences.desc())
+    elif selected_filter == 'least-absences':
+        display_query = display_query.order_by(StudentRecord.absences.asc())
+    elif selected_filter == 'highest-fte':
+        display_query = display_query.order_by(StudentRecord.present_fte.desc())
+    elif selected_filter == 'lowest-fte':
+        display_query = display_query.order_by(StudentRecord.present_fte.asc())
+    else:
+        display_query = display_query.order_by(StudentRecord.name.asc())
+
+    filter_state = {
+        'selected_school_id': selected_school_id,
+        'selected_grade': selected_grade,
+        'selected_filter': selected_filter,
+        'search_query': search_query,
+        'col_id': col_id,
+        'col_name': col_name,
+        'col_grade': col_grade,
+        'min_absences': min_absences,
+        'min_unexcused': min_unexcused,
+        'max_fte': max_fte,
+        'col_status': col_status,
+    }
+
+    return base_query, display_query, filter_state
 
 
 # ------------------------------------------------------------------------------
@@ -412,9 +431,9 @@ INDEX_HTML = """
         <!-- Filters & Upload Form -->
         <div class="card shadow-sm mb-4">
             <div class="card-body">
-                <form method="GET" action="{{ url_for('index') }}" class="row g-3 align-items-end">
+                <form id="filterForm" method="GET" action="{{ url_for('index') }}" class="row g-3 align-items-end">
                     {% if current_user.role == 'Admin' %}
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="form-label fw-bold">School</label>
                         <select name="school_id" class="form-select" onchange="this.form.submit()">
                             <option value="all" {% if selected_school_id == 'all' %}selected{% endif %}>All Schools</option>
@@ -436,7 +455,7 @@ INDEX_HTML = """
                     </div>
 
                     <div class="col-md-2">
-                        <label class="form-label fw-bold">Filter</label>
+                        <label class="form-label fw-bold">Sort / Filter</label>
                         <select name="filter" class="form-select" onchange="this.form.submit()">
                             <option value="all" {% if selected_filter == 'all' %}selected{% endif %}>All Records</option>
                             <option value="chronic" {% if selected_filter == 'chronic' %}selected{% endif %}>Chronic Only (FTE ≤ 90%)</option>
@@ -453,8 +472,10 @@ INDEX_HTML = """
                         <input type="text" name="q" value="{{ search_query }}" class="form-control" placeholder="Search by name or ID...">
                     </div>
 
-                    <div class="col-md-2">
-                        <button type="submit" class="btn btn-primary w-100">Apply</button>
+                    <div class="col-md-3 d-flex gap-2">
+                        <button type="submit" class="btn btn-primary flex-fill">Apply</button>
+                        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Reset</a>
+                        <a href="{{ url_for('export_students', school_id=selected_school_id, grade=selected_grade, filter=selected_filter, q=search_query, col_id=col_id, col_name=col_name, col_grade=col_grade, min_absences=min_absences, min_unexcused=min_unexcused, max_fte=max_fte, col_status=col_status) }}" class="btn btn-outline-success">Export CSV</a>
                     </div>
                 </form>
 
@@ -500,6 +521,39 @@ INDEX_HTML = """
                                 <th>Status</th>
                                 <th class="text-end pe-4">Actions</th>
                             </tr>
+                            <!-- Column-Specific Filter Row -->
+                            <tr class="bg-white">
+                                <th>
+                                    <input type="text" form="filterForm" name="col_id" value="{{ col_id }}" class="form-control form-control-sm" placeholder="ID...">
+                                </th>
+                                <th>
+                                    <input type="text" form="filterForm" name="col_name" value="{{ col_name }}" class="form-control form-control-sm" placeholder="Name...">
+                                </th>
+                                <th>
+                                    <input type="text" form="filterForm" name="col_grade" value="{{ col_grade }}" class="form-control form-control-sm" placeholder="Grade...">
+                                </th>
+                                <th></th>
+                                <th>
+                                    <input type="number" step="0.5" min="0" form="filterForm" name="min_absences" value="{{ min_absences }}" class="form-control form-control-sm" placeholder="Min ≥">
+                                </th>
+                                <th>
+                                    <input type="number" min="0" form="filterForm" name="min_unexcused" value="{{ min_unexcused }}" class="form-control form-control-sm" placeholder="Min ≥">
+                                </th>
+                                <th></th>
+                                <th>
+                                    <input type="number" step="0.1" min="0" max="100" form="filterForm" name="max_fte" value="{{ max_fte }}" class="form-control form-control-sm" placeholder="Max ≤">
+                                </th>
+                                <th>
+                                    <select form="filterForm" name="col_status" class="form-select form-select-sm" onchange="document.getElementById('filterForm').submit()">
+                                        <option value="" {% if col_status == '' %}selected{% endif %}>All</option>
+                                        <option value="chronic" {% if col_status == 'chronic' %}selected{% endif %}>Chronic</option>
+                                        <option value="ontrack" {% if col_status == 'ontrack' %}selected{% endif %}>On Track</option>
+                                    </select>
+                                </th>
+                                <th class="text-end pe-3">
+                                    <button type="submit" form="filterForm" class="btn btn-sm btn-primary">Filter</button>
+                                </th>
+                            </tr>
                         </thead>
                         <tbody>
                             {% for s in students %}
@@ -531,7 +585,7 @@ INDEX_HTML = """
                                 <!-- LOG INTERVENTION BUTTON -->
                                 <td class="text-end pe-3">
                                     <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#interventionModal{{ s.id }}">
-                                        + Log Intervention
+                                        + Log Intervention {% if s.interventions %}({{ s.interventions|length }}){% endif %}
                                     </button>
 
                                     <!-- INTERVENTION MODAL -->
@@ -582,12 +636,12 @@ INDEX_HTML = """
 
             {% if total_pages > 1 %}
             <div class="card-footer bg-white d-flex justify-content-between align-items-center">
-                <span class="small text-muted">Showing {{ display_count }} of {{ total_students }} records</span>
+                <span class="small text-muted">Showing {{ display_count }} of {{ filtered_total }} filtered records</span>
                 <nav>
                     <ul class="pagination pagination-sm mb-0">
                         {% for p in range(1, total_pages + 1) %}
                         <li class="page-item {% if p == current_page %}active{% endif %}">
-                            <a class="page-link" href="{{ url_for('index', page=p, school_id=selected_school_id, grade=selected_grade, filter=selected_filter, q=search_query) }}">{{ p }}</a>
+                            <a class="page-link" href="{{ url_for('index', page=p, school_id=selected_school_id, grade=selected_grade, filter=selected_filter, q=search_query, col_id=col_id, col_name=col_name, col_grade=col_grade, min_absences=min_absences, min_unexcused=min_unexcused, max_fte=max_fte, col_status=col_status) }}">{{ p }}</a>
                         </li>
                         {% endfor %}
                     </ul>
@@ -601,6 +655,7 @@ INDEX_HTML = """
 </body>
 </html>
 """
+
 
 # ------------------------------------------------------------------------------
 # Routes
@@ -630,86 +685,35 @@ def logout():
 @login_required
 def index():
     user = db.session.get(User, session['user_id'])
-    
-    # Query parameters
-    selected_school_id = request.args.get('school_id', 'all')
-    selected_grade = request.args.get('grade', 'all')
-    selected_filter = request.args.get('filter', 'all')
-    search_query = request.args.get('q', '').strip()
     page = request.args.get('page', 1, type=int)
 
-    # Restrict normal users to their assigned school
-    if user.role != 'Admin' and user.school_id:
-        selected_school_id = str(user.school_id)
+    base_query, display_query, f_state = build_filtered_student_query(user, request.args)
 
-    # --------------------------------------------------------------------------
-    # Base Query: Filter ONLY for currently active students in the building
-    # --------------------------------------------------------------------------
-    query = StudentRecord.query.filter(StudentRecord.is_active == True)
-
-    # Apply school filter
-    if selected_school_id != 'all':
-        query = query.filter(StudentRecord.school_id == int(selected_school_id))
-
-    # Apply grade filter
-    if selected_grade != 'all':
-        query = query.filter(StudentRecord.grade == selected_grade)
-
-    # Apply search filter
-    if search_query:
-        query = query.filter(
-            (StudentRecord.name.ilike(f"%{search_query}%")) |
-            (StudentRecord.student_id.ilike(f"%{search_query}%"))
-        )
-
-    # --------------------------------------------------------------------------
-    # KPI Calculations (Base active building query before sorting/filters)
-    # --------------------------------------------------------------------------
-    total_students = query.count()
-    at_risk_count = query.filter(StudentRecord.present_fte <= 90.0).count()
+    # KPI Calculations (Base active building query before display-only filters)
+    total_students = base_query.count()
+    at_risk_count = base_query.filter(StudentRecord.present_fte <= 90.0).count()
     chronic_rate = (at_risk_count / total_students * 100) if total_students > 0 else 0.0
 
-    # --------------------------------------------------------------------------
-    # Sort & Display Filters
-    # --------------------------------------------------------------------------
-    if selected_filter == 'chronic':
-        query = query.filter(StudentRecord.present_fte <= 90.0)
-    elif selected_filter == 'most-absences':
-        query = query.order_by(StudentRecord.absences.desc())
-    elif selected_filter == 'most-unexcused':
-        query = query.order_by(StudentRecord.unexcused_absences.desc())
-    elif selected_filter == 'least-absences':
-        query = query.order_by(StudentRecord.absences.asc())
-    elif selected_filter == 'highest-fte':
-        query = query.order_by(StudentRecord.present_fte.desc())
-    elif selected_filter == 'lowest-fte':
-        query = query.order_by(StudentRecord.present_fte.asc())
-
-    # --------------------------------------------------------------------------
     # Pagination Setup
-    # --------------------------------------------------------------------------
     per_page = 25
-    filtered_total = query.count()
+    filtered_total = display_query.count()
     total_pages = math.ceil(filtered_total / per_page)
-    students = query.offset((page - 1) * per_page).limit(per_page).all()
+    students = display_query.offset((page - 1) * per_page).limit(per_page).all()
 
-    # --------------------------------------------------------------------------
     # Auxiliary UI Data
-    # --------------------------------------------------------------------------
     schools = School.query.all()
     all_users = User.query.all() if user.role == 'Admin' else []
-    
-    # Populate grade filter dynamically from active students only
-    grade_query = db.session.query(StudentRecord.grade)\
-        .filter(StudentRecord.is_active == True)
-    if selected_school_id != 'all':
+
+    selected_school_id = f_state['selected_school_id']
+    grade_query = db.session.query(StudentRecord.grade).filter(StudentRecord.is_active == True)
+    if selected_school_id != 'all' and selected_school_id.isdigit():
         grade_query = grade_query.filter(StudentRecord.school_id == int(selected_school_id))
-    
+
     available_grades_tuples = grade_query.distinct().all()
     available_grades = sorted([g[0] for g in available_grades_tuples if g[0]])
 
     active_school_name = "All Schools"
-    if selected_school_id != 'all':
+    if selected_school_id != 'all' and selected_school_id.isdigit():
         sch = db.session.get(School, int(selected_school_id))
         if sch:
             active_school_name = sch.name
@@ -721,24 +725,77 @@ def index():
         schools=schools,
         all_users=all_users,
         available_grades=available_grades,
-        selected_school_id=selected_school_id,
-        selected_grade=selected_grade,
-        selected_filter=selected_filter,
-        search_query=search_query,
         active_school_name=active_school_name,
         total_students=total_students,
+        filtered_total=filtered_total,
         at_risk_count=at_risk_count,
         chronic_rate=chronic_rate,
         display_count=len(students),
         current_page=page,
-        total_pages=total_pages
+        total_pages=total_pages,
+        **f_state
     )
+
+
+@app.route('/export/students')
+@login_required
+def export_students():
+    user = db.session.get(User, session['user_id'])
+    _, display_query, f_state = build_filtered_student_query(user, request.args)
+    students = display_query.all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow([
+        'Student ID',
+        'Student Name',
+        'Grade',
+        'School',
+        'Total Absences',
+        'Unexcused Absences',
+        'Tardies',
+        'Present FTE (%)',
+        'Status',
+        'Interventions Logged'
+    ])
+
+    for s in students:
+        is_chronic = s.present_fte is not None and s.present_fte <= 90.0
+        status = 'Chronic' if is_chronic else 'On Track'
+        fte_str = f"{s.present_fte:.2f}" if s.present_fte is not None else 'N/A'
+        school_name = s.school.name if s.school else 'N/A'
+        interventions_count = len(s.interventions) if s.interventions else 0
+
+        writer.writerow([
+            s.student_id,
+            s.name,
+            s.grade or '',
+            school_name,
+            s.absences,
+            s.unexcused_absences,
+            s.tardies,
+            fte_str,
+            status,
+            interventions_count
+        ])
+
+    output.seek(0)
+    school_tag = f_state['selected_school_id']
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={
+            'Content-Disposition': f'attachment; filename=filtered_students_{school_tag}.csv'
+        }
+    )
+
 
 @app.route('/upload_csv', methods=['POST'])
 @login_required
 def upload_csv():
     user = db.session.get(User, session['user_id'])
-    
+
     target_school_id = user.school_id
     if user.role == 'Admin':
         target_school_id = request.form.get('school_id')
@@ -797,7 +854,6 @@ def upload_csv():
             else:
                 present_fte = 0.0
 
-            # Upsert student record
             record = StudentRecord.query.filter_by(student_id=s_id, school_id=target_school_id).first()
             if not record:
                 record = StudentRecord(student_id=s_id, school_id=target_school_id)
@@ -810,20 +866,15 @@ def upload_csv():
             record.tardies = tardies
             record.total_days = total_days
             record.present_fte = present_fte
-            record.is_active = True  # Explicitly mark as currently active in building
+            record.is_active = True
             count += 1
 
-        # ----------------------------------------------------------------------
-        # ROSTER SYNC: Handle students who were withdrawn / NOT in this CSV
-        # ----------------------------------------------------------------------
         existing_students = StudentRecord.query.filter_by(school_id=target_school_id).all()
         for student in existing_students:
             if student.student_id not in uploaded_student_ids:
-                # If student has no interventions logged, remove them cleanly
                 if not student.interventions:
                     db.session.delete(student)
                 else:
-                    # Keep record and interventions, but mark inactive
                     student.is_active = False
 
         db.session.commit()
@@ -833,6 +884,7 @@ def upload_csv():
         flash(f"Error parsing CSV file: {str(e)}", "error")
 
     return redirect(url_for('index'))
+
 
 @app.route('/log_intervention/<int:student_id>', methods=['POST'])
 @login_required
@@ -856,7 +908,7 @@ def log_intervention(student_id):
             notes=notes,
             action_type=action_type if action_type else 'General Support',
             logged_by=user.username,
-            created_at=datetime.now()  # Explicit timestamp ensures no adapter error
+            created_at=datetime.now()
         )
         db.session.add(intervention)
         db.session.commit()
@@ -908,28 +960,14 @@ def add_user():
 def delete_user(user_id):
     user = db.session.get(User, user_id)
     if user:
-        db.session.delete(user)
-        db.session.commit()
-        flash("User deleted successfully.", "success")
+        if user.id == session.get('user_id'):
+            flash("You cannot delete your own active account.", "error")
+        else:
+            db.session.delete(user)
+            db.session.commit()
+            flash("User deleted successfully.", "success")
     return redirect(url_for('index'))
 
-
-# ------------------------------------------------------------------------------
-# Database Initialization & Setup
-# ------------------------------------------------------------------------------
-with app.app_context():
-    db.create_all()
-    # Seed initial Admin user if table is empty
-    if not User.query.filter_by(username='admin').first():
-        admin = User(username='admin', role='Admin')
-        admin.set_password('admin123')
-        db.session.add(admin)
-        db.session.commit()
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=True)
-
-from sqlalchemy import text
 
 # ------------------------------------------------------------------------------
 # Database Initialization & Schema Auto-Migration
@@ -937,16 +975,18 @@ from sqlalchemy import text
 with app.app_context():
     db.create_all()
 
-    # Safely add 'is_active' column to PostgreSQL/SQLite if missing
     try:
         db.session.execute(text("ALTER TABLE student_record ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;"))
         db.session.commit()
     except Exception:
         db.session.rollback()
 
-    # Seed initial Admin user if table is empty
     if not User.query.filter_by(username='admin').first():
         admin = User(username='admin', role='Admin')
         admin.set_password('admin123')
         db.session.add(admin)
         db.session.commit()
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080, debug=True)
