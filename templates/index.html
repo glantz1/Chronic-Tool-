@@ -402,10 +402,10 @@
                     document.getElementById('userInfo').classList.remove('hidden');
                     document.getElementById('userEmail').textContent = currentUser.email;
 
-                    if (currentUser.role === 'admin') {
+                   if (currentUser.role === 'admin') {
                         document.getElementById('addSchoolBtn').classList.remove('hidden');
                         document.getElementById('manageUsersBtn').classList.remove('hidden');
-                        document.getElementById('backupBtn');
+                        document.getElementById('backupBtn').classList.remove('hidden');
                     }
 
                     await loadSchools();
