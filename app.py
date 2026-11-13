@@ -38,11 +38,14 @@ def export_students():
 
     # Apply sorting
     sort_mapping = {
+        'name': asc(StudentRecord.student_name),
+        'name_asc': asc(StudentRecord.student_name),
+        'absences': desc(StudentRecord.days_absent),
         'absences_desc': desc(StudentRecord.days_absent),
         'absences_asc': asc(StudentRecord.days_absent),
         'unexcused_desc': desc(StudentRecord.unexcused_absences),
+        'rate': asc(StudentRecord.attendance_rate_pct),
         'rate_asc': asc(StudentRecord.attendance_rate_pct),
-        'name_asc': asc(StudentRecord.student_name),
     }
     if sort in sort_mapping:
         query = query.order_by(sort_mapping[sort])
