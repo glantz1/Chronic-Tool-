@@ -981,14 +981,16 @@ def sync_from_prod():
         </form>
         """
 
-  prod_url = request.form.get('prod_url', '').strip()
-if prod_url.startswith('postgres://'):
-    prod_url = prod_url.replace('postgres://', 'postgresql://', 1)
-if 'sslmode=' not in prod_url:
-    separator = '&' if '?' in prod_url else '?'
-    prod_url = f"{prod_url}{separator}sslmode=require"
+    prod_url = request.form.get('prod_url', '').strip()
+    if prod_url.startswith('postgres://'):
+        prod_url = prod_url.replace('postgres://', 'postgresql://', 1)
+    if 'sslmode=' not in prod_url:
+        separator = '&' if '?' in prod_url else '?'
+        prod_url = f"{prod_url}{separator}sslmode=require"
 
-prod_engine = create_engine(prod_url, pool_pre_ping=True)
+    try:
+        from sqlalchemy import MetaData, create_engine
+        prod_engine = create_engine(prod_url, pool_pre_ping=True)
         meta = MetaData()
         meta.reflect(bind=prod_engine)
 
@@ -1016,6 +1018,7 @@ prod_engine = create_engine(prod_url, pool_pre_ping=True)
         flash(f"Sync failed: {str(e)}", "error")
 
     return redirect(url_for('index'))
+
 # ------------------------------------------------------------------------------
 # Database Initialization & Schema Auto-Migration
 # ------------------------------------------------------------------------------
