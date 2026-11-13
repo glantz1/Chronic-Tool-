@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import math
 import os
 from datetime import datetime
@@ -967,6 +968,69 @@ def delete_user(user_id):
             db.session.commit()
             flash("User deleted successfully.", "success")
     return redirect(url_for('index'))
+
+
+@app.route('/admin/backup')
+@admin_required
+def download_full_backup():
+    backup_data = {
+        'exported_at': datetime.now().isoformat(),
+        'schools': [
+            {'id': s.id, 'name': s.name}
+            for s in School.query.all()
+        ],
+        'users': [
+            {
+                'id': u.id,
+                'username': u.username,
+                'password_hash': u.password_hash,
+                'role': u.role,
+                'school_id': u.school_id,
+            }
+            for u in User.query.all()
+        ],
+        'student_records': [
+            {
+                'id': r.id,
+                'student_id': r.student_id,
+                'name': r.name,
+                'grade': r.grade,
+                'school_id': r.school_id,
+                'absences': r.absences,
+                'unexcused_absences': r.unexcused_absences,
+                'tardies': r.tardies,
+                'total_days': r.total_days,
+                'present_fte': r.present_fte,
+                'is_active': r.is_active,
+            }
+            for r in StudentRecord.query.all()
+        ],
+        'interventions': [
+            {
+                'id': i.id,
+                'student_record_id': i.student_record_id,
+                'action_type': i.action_type,
+                'notes': i.notes,
+                'logged_by': i.logged_by,
+                'created_at': i.created_at.isoformat() if i.created_at else None,
+            }
+            for i in Intervention.query.all()
+        ],
+    }
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return Response(
+        json.dumps(backup_data, indent=2),
+        mimetype='application/json',
+        headers={
+            'Content-Disposition': f'attachment; filename=chronic_tool_backup_{timestamp}.json'
+        }
+    )
+
+
+# ------------------------------------------------------------------------------
+# Database Initialization & Schema Auto-Migration
+# ------------------------------------------------------------------------------
 
 @app.route('/admin/sync-from-prod', methods=['GET', 'POST'])
 @admin_required
