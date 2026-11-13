@@ -1,11 +1,93 @@
-import os
-import io
 import csv
-import math
-from functools import wraps
-from flask import Flask, request, session, flash, redirect, url_for, render_template_string
-from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
+import io
+from flask import Response, request, session
+from sqlalchemy import asc, desc
+
+@app.route('/export/students')
+def export_students():
+    # Ensure user is logged in
+    if 'user_id' not in session:
+        return "Unauthorized", 401
+
+    school_id = request.args.get('school_id')
+    if not school_id:
+        return "School ID is required", 400
+
+    search = request.args.get('search', '').strip()
+    grade = request.args.get('grade', '').strip()
+    sort = request.args.get('sort', 'absences_desc')
+    chronic_only = request.args.get('chronic', 'false').lower() == 'true'
+
+    # Base query filtered by school
+    query = StudentRecord.query.filter_by(school_id=school_id)
+
+    # Apply search filter (matches name or student ID)
+    if search:
+        query = query.filter(
+            (StudentRecord.student_name.ilike(f'%{search}%')) |
+            (StudentRecord.student_id.ilike(f'%{search}%'))
+        )
+
+    # Apply grade filter
+    if grade:
+        query = query.filter(StudentRecord.grade == grade)
+
+    # Apply chronic-only filter (adjust if your model uses a column vs. calculated property)
+    if chronic_only:
+        query = query.filter(StudentRecord.is_chronic == True)
+
+    # Apply sorting
+    sort_mapping = {
+        'absences_desc': desc(StudentRecord.days_absent),
+        'absences_asc': asc(StudentRecord.days_absent),
+        'unexcused_desc': desc(StudentRecord.unexcused_absences),
+        'rate_asc': asc(StudentRecord.attendance_rate_pct),
+        'name_asc': asc(StudentRecord.student_name),
+    }
+    if sort in sort_mapping:
+        query = query.order_by(sort_mapping[sort])
+
+    students = query.all()
+
+    # Build CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Header row
+    writer.writerow([
+        'Student ID',
+        'Student Name',
+        'Grade',
+        'Days Absent',
+        'Unexcused Absences',
+        'Attendance Rate (%)',
+        'Status',
+        'Interventions Logged'
+    ])
+
+    # Data rows
+    for s in students:
+        status = 'Chronic' if s.is_chronic else 'On Track'
+        interventions_count = len(s.interventions) if hasattr(s, 'interventions') else 0
+        writer.writerow([
+            s.student_id,
+            s.student_name,
+            s.grade or '',
+            s.days_absent,
+            s.unexcused_absences,
+            s.attendance_rate_pct,
+            status,
+            interventions_count
+        ])
+
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={
+            'Content-Disposition': f'attachment; filename=filtered_students_school_{school_id}.csv'
+        }
+    )
 
 # ------------------------------------------------------------------------------
 # App & Database Setup
