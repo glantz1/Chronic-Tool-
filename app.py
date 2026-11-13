@@ -968,7 +968,53 @@ def delete_user(user_id):
             flash("User deleted successfully.", "success")
     return redirect(url_for('index'))
 
+@app.route('/admin/sync-from-prod', methods=['GET', 'POST'])
+@admin_required
+def sync_from_prod():
+    if request.method == 'GET':
+        return """
+        <form method="POST" style="max-width:500px;margin:60px auto;font-family:sans-serif;">
+            <h3>One-Time Copy from Production Database</h3>
+            <p>Paste your Production <b>DATABASE_PUBLIC_URL</b> below to copy all schools, users, student records, and interventions into this staging database:</p>
+            <input type="password" name="prod_url" placeholder="postgresql://postgres:..." required style="width:100%;padding:10px;margin-bottom:12px;">
+            <button type="submit" style="padding:10px 16px;background:#0d6efd;color:white;border:none;border-radius:4px;cursor:pointer;">Copy Production Data Now</button>
+        </form>
+        """
 
+    prod_url = request.form.get('prod_url', '').strip()
+    if prod_url.startswith('postgres://'):
+        prod_url = prod_url.replace('postgres://', 'postgresql://', 1)
+
+    try:
+        from sqlalchemy import MetaData, create_engine
+        prod_engine = create_engine(prod_url)
+        meta = MetaData()
+        meta.reflect(bind=prod_engine)
+
+        table_order = ['school', 'user', 'student_record', 'intervention']
+        summary = []
+
+        with prod_engine.connect() as prod_conn:
+            for table_name in table_order:
+                if table_name not in meta.tables:
+                    continue
+                table = meta.tables[table_name]
+                rows = prod_conn.execute(table.select()).mappings().all()
+                if rows:
+                    db.session.execute(text(f'TRUNCATE TABLE "{table_name}" RESTART IDENTITY CASCADE;'))
+                    db.session.execute(table.insert(), [dict(r) for r in rows])
+                    db.session.execute(text(
+                        f"SELECT setval(pg_get_serial_sequence('\"{table_name}\"', 'id'), COALESCE(MAX(id), 1)) FROM \"{table_name}\";"
+                    ))
+                summary.append(f"{table_name}: {len(rows)} rows")
+
+        db.session.commit()
+        flash("Database synced successfully! (" + ", ".join(summary) + ")", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Sync failed: {str(e)}", "error")
+
+    return redirect(url_for('index'))
 # ------------------------------------------------------------------------------
 # Database Initialization & Schema Auto-Migration
 # ------------------------------------------------------------------------------
