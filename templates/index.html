@@ -72,7 +72,10 @@
                     <button onclick="openUploadModal()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-sm font-medium px-3 py-2 rounded-lg border border-indigo-200 transition">
                         <i class="fa-solid fa-file-upload mr-1"></i> Upload CSV
                     </button>
-                    <button onclick="exportInterventions()" class="bg-emerald-60 hover:bg-emerald-100 text-emerald-700 text-sm font-medium px-3 py-2 rounded-lg border border-emerald-200 transition">
+                    <button onclick="exportFilteredStudents()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition">
+                        <i class="fa-solid fa-file-csv mr-1"></i> Export Filtered CSV
+                    </button>
+                    <button onclick="exportInterventions()" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-sm font-medium px-3 py-2 rounded-lg border border-emerald-200 transition">
                         <i class="fa-solid fa-file-export mr-1"></i> Export Data
                     </button>
                 </div>
@@ -118,6 +121,9 @@
                             <option value="absences">Sort by Absences (High-Low)</option>
                             <option value="rate">Sort by Attendance Rate</option>
                         </select>
+                        <button type="button" onclick="clearAllFilters()" class="px-3 py-2 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition">
+                            Clear Filters
+                        </button>
                     </div>
                     <div class="flex items-center space-x-2">
                         <input type="checkbox" id="chronicOnly" onchange="loadDashboard()" class="h-4 w-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
@@ -129,6 +135,7 @@
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm text-slate-600">
                         <thead class="bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase">
+                            <!-- Row 1: Column Headers -->
                             <tr>
                                 <th class="p-3.5">Student ID</th>
                                 <th class="p-3.5">Name</th>
@@ -138,6 +145,41 @@
                                 <th class="p-3.5 text-center">Attendance %</th>
                                 <th class="p-3.5 text-center">Status</th>
                                 <th class="p-3.5 text-right">Actions</th>
+                            </tr>
+                            <!-- Row 2: Column Filters -->
+                            <tr class="bg-slate-50 border-b border-slate-200">
+                                <th class="p-2">
+                                    <input type="text" id="colFilterId" oninput="loadDashboard()" placeholder="Filter ID..." class="w-full px-2 py-1 text-xs font-normal border rounded bg-white">
+                                </th>
+                                <th class="p-2">
+                                    <input type="text" id="colFilterName" oninput="loadDashboard()" placeholder="Filter Name..." class="w-full px-2 py-1 text-xs font-normal border rounded bg-white">
+                                </th>
+                                <th class="p-2">
+                                    <input type="text" id="colFilterGrade" oninput="loadDashboard()" placeholder="Grade..." class="w-full px-2 py-1 text-xs font-normal border rounded bg-white text-center">
+                                </th>
+                                <th class="p-2">
+                                    <input type="number" id="colFilterMinAbsent" oninput="loadDashboard()" placeholder="Min ≥" min="0" class="w-full px-2 py-1 text-xs font-normal border rounded bg-white text-center">
+                                </th>
+                                <th class="p-2">
+                                    <input type="number" id="colFilterMinUnexcused" oninput="loadDashboard()" placeholder="Min ≥" min="0" class="w-full px-2 py-1 text-xs font-normal border rounded bg-white text-center">
+                                </th>
+                                <th class="p-2">
+                                    <input type="number" id="colFilterMaxRate" oninput="loadDashboard()" placeholder="Max % ≤" min="0" max="100" step="0.1" class="w-full px-2 py-1 text-xs font-normal border rounded bg-white text-center">
+                                </th>
+                                <th class="p-2">
+                                    <select id="colFilterStatus" onchange="loadDashboard()" class="w-full px-2 py-1 text-xs font-normal border rounded bg-white">
+                                        <option value="">All</option>
+                                        <option value="chronic">Chronic</option>
+                                        <option value="on_track">On Track</option>
+                                    </select>
+                                </th>
+                                <th class="p-2">
+                                    <select id="colFilterInterventions" onchange="loadDashboard()" class="w-full px-2 py-1 text-xs font-normal border rounded bg-white">
+                                        <option value="">All</option>
+                                        <option value="has_any">Has Logged (>0)</option>
+                                        <option value="none">None (0)</option>
+                                    </select>
+                                </th>
                             </tr>
                         </thead>
                         <tbody id="studentTableBody" class="divide-y divide-slate-200">
@@ -280,7 +322,7 @@
                 <button type="submit" class="bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-indigo-700">Add User Account</button>
             </form>
 
-            <!-- EXISTING USERS LIST -->
+            <!-- EXISTING USERS LIST (Server-rendered via Jinja) -->
             <div class="border rounded-lg overflow-hidden">
                 <table class="w-full text-left text-xs">
                     <thead class="bg-slate-100 font-bold text-slate-500 border-b">
@@ -293,7 +335,26 @@
                         </tr>
                     </thead>
                     <tbody id="userListTable" class="divide-y divide-slate-100">
-                        <!-- Populated dynamic or via server template -->
+                        {% for user in users %}
+                        <tr class="hover:bg-slate-50">
+                            <td class="p-2 font-medium text-slate-800">{{ user.id }}</td>
+                            <td class="p-2 text-slate-800">{{ user.email }}</td>
+                            <td class="p-2 capitalize text-slate-600">{{ user.role }}</td>
+                            <td class="p-2 text-slate-600">{{ user.school_id if user.school_id else 'N/A' }}</td>
+                            <td class="p-2 text-right">
+                                {% if user.id != session.get('user_id') %}
+                                <form action="{{ url_for('delete_user', user_id=user.id) }}"
+                                      method="POST"
+                                      style="display:inline;"
+                                      onsubmit="return confirm('Are you sure you want to delete user {{ user.email }}?');">
+                                    <button type="submit" class="text-red-600 hover:text-red-800 font-medium">Delete</button>
+                                </form>
+                                {% else %}
+                                <span class="text-slate-400 font-medium">Current User</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
                     </tbody>
                 </table>
             </div>
@@ -371,7 +432,7 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    checkAuth();
+                    location.reload();
                 } else {
                     document.getElementById('loginError').textContent = data.error || "Login failed.";
                     document.getElementById('loginError').classList.remove('hidden');
@@ -422,16 +483,61 @@
             }
         }
 
+        function getFilterQueryString() {
+            const schoolId = document.getElementById('schoolSelect').value;
+            const search = document.getElementById('searchInput')?.value || '';
+            const grade = document.getElementById('gradeFilter')?.value || '';
+            const sort = document.getElementById('sortSelect')?.value || 'name';
+            const chronic = document.getElementById('chronicOnly')?.checked || false;
+
+            const colId = document.getElementById('colFilterId')?.value || '';
+            const colName = document.getElementById('colFilterName')?.value || '';
+            const colGrade = document.getElementById('colFilterGrade')?.value || '';
+            const minAbsent = document.getElementById('colFilterMinAbsent')?.value || '';
+            const minUnexcused = document.getElementById('colFilterMinUnexcused')?.value || '';
+            const maxRate = document.getElementById('colFilterMaxRate')?.value || '';
+            const status = document.getElementById('colFilterStatus')?.value || '';
+            const interventions = document.getElementById('colFilterInterventions')?.value || '';
+
+            const params = new URLSearchParams({
+                school_id: schoolId,
+                search: search,
+                grade: grade,
+                sort: sort,
+                chronic: chronic,
+                col_id: colId,
+                col_name: colName,
+                col_grade: colGrade,
+                min_absent: minAbsent,
+                min_unexcused: minUnexcused,
+                max_rate: maxRate,
+                status: status,
+                interventions: interventions
+            });
+
+            return params.toString();
+        }
+
+        function clearAllFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('gradeFilter').value = '';
+            document.getElementById('chronicOnly').checked = false;
+            document.getElementById('colFilterId').value = '';
+            document.getElementById('colFilterName').value = '';
+            document.getElementById('colFilterGrade').value = '';
+            document.getElementById('colFilterMinAbsent').value = '';
+            document.getElementById('colFilterMinUnexcused').value = '';
+            document.getElementById('colFilterMaxRate').value = '';
+            document.getElementById('colFilterStatus').value = '';
+            document.getElementById('colFilterInterventions').value = '';
+            loadDashboard();
+        }
+
         async function loadDashboard() {
             const schoolId = document.getElementById('schoolSelect').value;
             if (!schoolId) return;
 
-            const search = document.getElementById('searchInput').value;
-            const grade = document.getElementById('gradeFilter').value;
-            const sort = document.getElementById('sortSelect').value;
-            const chronic = document.getElementById('chronicOnly').checked;
-
-            const url = `/students?school_id=${schoolId}&search=${encodeURIComponent(search)}&grade=${encodeURIComponent(grade)}&sort=${sort}&chronic=${chronic}`;
+            const url = `/students?${getFilterQueryString()}`;
             try {
                 const res = await fetch(url);
                 const data = await res.json();
@@ -635,7 +741,7 @@
             } catch (err) {
                 errorDiv.textContent = "An unexpected error occurred during upload.";
                 errorDiv.classList.remove('hidden');
-            } font-medium {
+            } finally {
                 submitBtn.disabled = false;
                 submitBtn.textContent = "Upload & Import";
             }
@@ -688,7 +794,7 @@
                         tr.className = 'hover:bg-slate-50';
                         tr.innerHTML = `
                             <td class="p-2 font-medium text-slate-800">${escapeHTML(data.user.id)}</td>
-                            <td class="p-2 text-slate-800">${escapeHTML(data.user.username || email)}</td>
+                            <td class="p-2 text-slate-800">${escapeHTML(data.user.email || data.user.username || email)}</td>
                             <td class="p-2 capitalize text-slate-600">${escapeHTML(data.user.role || role)}</td>
                             <td class="p-2 text-slate-600">${escapeHTML(data.user.school_id || 'N/A')}</td>
                             <td class="p-2 text-right">
@@ -709,6 +815,15 @@
             }
         }
 
+        function exportFilteredStudents() {
+            const schoolId = document.getElementById('schoolSelect').value;
+            if (!schoolId) {
+                alert("Please select a school to export data.");
+                return;
+            }
+            window.location.href = `/export/students?${getFilterQueryString()}`;
+        }
+
         function exportInterventions() {
             const schoolId = document.getElementById('schoolSelect').value;
             if (!schoolId) {
@@ -722,3 +837,4 @@
     </script>
 </body>
 </html>
+        
