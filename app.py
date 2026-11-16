@@ -1061,7 +1061,7 @@ def sync_from_prod():
         table_order = ['school', 'user', 'student_record', 'intervention']
         summary = []
 
-       with prod_engine.connect() as prod_conn:
+    with prod_engine.connect() as prod_conn:
     # 1. Clear existing tables in reverse foreign-key order (works on SQLite & Postgres)
     for table_name in reversed(table_order):
         if table_name in meta.tables:
