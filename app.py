@@ -1061,19 +1061,25 @@ def sync_from_prod():
         table_order = ['school', 'user', 'student_record', 'intervention']
         summary = []
 
-        with prod_engine.connect() as prod_conn:
-            for table_name in table_order:
-                if table_name not in meta.tables:
-                    continue
-                table = meta.tables[table_name]
-                rows = prod_conn.execute(table.select()).mappings().all()
-                if rows:
-                    db.session.execute(text(f'TRUNCATE TABLE "{table_name}" RESTART IDENTITY CASCADE;'))
-                    db.session.execute(table.insert(), [dict(r) for r in rows])
-                    db.session.execute(text(
-                        f"SELECT setval(pg_get_serial_sequence('\"{table_name}\"', 'id'), COALESCE(MAX(id), 1)) FROM \"{table_name}\";"
-                    ))
-                summary.append(f"{table_name}: {len(rows)} rows")
+       with prod_engine.connect() as prod_conn:
+    # 1. Clear existing tables in reverse foreign-key order (works on SQLite & Postgres)
+    for table_name in reversed(table_order):
+        if table_name in meta.tables:
+            db.session.execute(meta.tables[table_name].delete())
+
+    # 2. Copy rows from Production into Staging
+    for table_name in table_order:
+        if table_name not in meta.tables:
+            continue
+        table = meta.tables[table_name]
+        rows = prod_conn.execute(table.select()).mappings().all()
+        if rows:
+            db.session.execute(table.insert(), [dict(r) for r in rows])
+            if db.engine.dialect.name == 'postgresql':
+                db.session.execute(text(
+                    f"SELECT setval(pg_get_serial_sequence('\"{table_name}\"', 'id'), COALESCE(MAX(id), 1)) FROM \"{table_name}\";"
+                ))
+        summary.append(f"{table_name}: {len(rows)} rows")
 
         db.session.commit()
         flash("Database synced successfully! (" + ", ".join(summary) + ")", "success")
