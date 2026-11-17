@@ -1035,49 +1035,90 @@ def download_full_backup():
 @app.route('/admin/sync-from-prod', methods=['GET', 'POST'])
 @admin_required
 def sync_from_prod():
+    from flask import request, render_template_string
+    from sqlalchemy import create_engine, text
+
+    error_msg = None
+    success_msg = None
+
     if request.method == 'POST':
         prod_url = request.form.get('prod_url', '').strip()
         if not prod_url:
-            flash("Please paste your Production DATABASE_PUBLIC_URL.", "error")
-            return redirect(url_for('sync_from_prod'))
+            error_msg = "Please paste your Production DATABASE_PUBLIC_URL."
+        else:
+            if prod_url.startswith("postgres://"):
+                prod_url = prod_url.replace("postgres://", "postgresql://", 1)
 
-        if prod_url.startswith("postgres://"):
-            prod_url = prod_url.replace("postgres://", "postgresql://", 1)
+            try:
+                prod_engine = create_engine(prod_url)
+                meta = db.metadata
+                table_order = ['school', 'user', 'student_record', 'intervention']
+                summary = []
 
-        try:
-            prod_engine = create_engine(prod_url)
-            meta = db.metadata
-            table_order = ['school', 'user', 'student_record', 'intervention']
-            summary = []
+                with prod_engine.connect() as prod_conn:
+                    # 1. Clear existing tables in reverse foreign-key order (works on SQLite & Postgres)
+                    for table_name in reversed(table_order):
+                        if table_name in meta.tables:
+                            db.session.execute(meta.tables[table_name].delete())
 
-            with prod_engine.connect() as prod_conn:
-                # 1. Clear existing tables in reverse foreign-key order (works on SQLite & Postgres)
-                for table_name in reversed(table_order):
-                    if table_name in meta.tables:
-                        db.session.execute(meta.tables[table_name].delete())
+                    # 2. Copy rows from Production into Staging
+                    for table_name in table_order:
+                        if table_name not in meta.tables:
+                            continue
+                        table = meta.tables[table_name]
+                        rows = prod_conn.execute(table.select()).mappings().all()
+                        if rows:
+                            db.session.execute(table.insert(), [dict(r) for r in rows])
+                            if db.engine.dialect.name == 'postgresql':
+                                db.session.execute(text(
+                                    f"SELECT setval(pg_get_serial_sequence('\"{table_name}\"', 'id'), COALESCE(MAX(id), 1)) FROM \"{table_name}\";"
+                                ))
+                        summary.append(f"{table_name}: {len(rows)} rows")
 
-                # 2. Copy rows from Production into Staging
-                for table_name in table_order:
-                    if table_name not in meta.tables:
-                        continue
-                    table = meta.tables[table_name]
-                    rows = prod_conn.execute(table.select()).mappings().all()
-                    if rows:
-                        db.session.execute(table.insert(), [dict(r) for r in rows])
-                        if db.engine.dialect.name == 'postgresql':
-                            db.session.execute(text(
-                                f"SELECT setval(pg_get_serial_sequence('\"{table_name}\"', 'id'), COALESCE(MAX(id), 1)) FROM \"{table_name}\";"
-                            ))
-                    summary.append(f"{table_name}: {len(rows)} rows")
+                db.session.commit()
+                success_msg = f"Sync complete! ({', '.join(summary)})"
 
-            db.session.commit()
-            flash(f"Sync complete! ({', '.join(summary)})", "success")
-            return redirect(url_for('index'))
+            except Exception as e:
+                db.session.rollback()
+                error_msg = f"Sync failed: {str(e)}"
 
-        except Exception as e:
-            db.session.rollback()
-            flash(f"Sync failed: {str(e)}", "error")
-            return redirect(url_for('sync_from_prod'))
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Sync Production Data to Staging</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+        <div class="bg-white max-w-lg w-full p-6 rounded-xl shadow-md border border-slate-200 space-y-4">
+            <h2 class="text-xl font-bold text-slate-800">Sync Production Database to Staging</h2>
+            <p class="text-xs text-slate-500">
+                Paste your Production <strong>DATABASE_PUBLIC_URL</strong> below to copy all data into this Staging database.
+            </p>
+            {% if error_msg %}
+                <div class="p-3 rounded text-xs bg-red-100 text-red-700 break-all">{{ error_msg }}</div>
+            {% endif %}
+            {% if success_msg %}
+                <div class="p-3 rounded text-xs bg-emerald-100 text-emerald-700 font-semibold">{{ success_msg }}</div>
+            {% endif %}
+            <form method="POST" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Production DATABASE_PUBLIC_URL</label>
+                    <input type="password" name="prod_url" required placeholder="postgresql://postgres:...@roundhouse.proxy.rlwy.net:12345/railway"
+                           class="w-full p-2.5 border border-slate-300 rounded-lg text-sm">
+                </div>
+                <div class="flex justify-between items-center pt-2">
+                    <a href="/" class="text-sm text-slate-500 hover:underline">&larr; Back to Dashboard</a>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
+                        Copy Production Data Now
+                    </button>
+                </div>
+            </form>
+        </div>
+    </body>
+    </html>
+    """, error_msg=error_msg, success_msg=success_msg)
+
 
 # ------------------------------------------------------------------------------
 # Database Initialization & Schema Auto-Migration
@@ -1098,5 +1139,7 @@ with app.app_context():
         db.session.commit()
 
 
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080, debug=True)
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=True)
